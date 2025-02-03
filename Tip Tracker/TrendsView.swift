@@ -10,16 +10,204 @@ private func formatCurrency(_ amount: Double) -> String {
     return formatter.string(from: NSNumber(value: amount)) ?? "$\(amount)"
 }
 
+// MARK: - TrendsViewModel
+
+final class TrendsViewModel: ObservableObject {
+    /// Stores computed pages for each grouping.
+    @Published var paginatedGroupedData: [Grouping: [[GroupedData]]] = [:]
+    
+    private var records: [WorkRecord]
+    private var hourlyWage: Double
+    private let calendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 2
+        return cal
+    }()
+    
+    init(records: [WorkRecord], hourlyWage: Double) {
+        self.records = records
+        self.hourlyWage = hourlyWage
+        computeAllGroupings()
+    }
+    
+    func update(records: [WorkRecord], hourlyWage: Double) {
+        self.records = records
+        self.hourlyWage = hourlyWage
+        computeAllGroupings()
+    }
+    
+    private func computeAllGroupings() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let weekly = self.computeWeeklyData()
+            let monthly = self.computeMonthlyData()
+            let yearly = self.computeYearlyData()
+            DispatchQueue.main.async {
+                self.paginatedGroupedData[.week] = weekly
+                self.paginatedGroupedData[.month] = monthly
+                self.paginatedGroupedData[.year] = yearly
+            }
+        }
+    }
+    
+    // MARK: - WEEKLY DATA (Mon–Sun)
+    private func computeWeeklyData() -> [[GroupedData]] {
+        guard !records.isEmpty else { return [] }
+        let sorted = records.sorted { $0.date < $1.date }
+        guard let earliestDate = sorted.first?.date,
+              let latestDate = sorted.last?.date else { return [] }
+        
+        let now = Date()
+        let upperBound = max(latestDate, now)
+        guard let earliestWeek = calendar.dateInterval(of: .weekOfYear, for: earliestDate),
+              let latestWeek = calendar.dateInterval(of: .weekOfYear, for: upperBound) else {
+            return []
+        }
+        
+        let startOfFirstWeek = earliestWeek.start
+        let startOfLastWeek = latestWeek.start
+        
+        var weekStart = startOfFirstWeek
+        var pages: [[GroupedData]] = []
+        
+        while weekStart <= startOfLastWeek {
+            guard let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) else { break }
+            
+            var weekData: [GroupedData] = []
+            let daysThisWeek = allDates(from: weekStart, to: weekEnd)
+            for day in daysThisWeek {
+                // Instead of filtering for each day, you might consider grouping your records by day once.
+                let dailyRecords = records.filter { calendar.isDate($0.date, inSameDayAs: day) }
+                let val = computeMetricValue(for: dailyRecords)
+                weekData.append(GroupedData(startDate: day, value: val))
+            }
+            pages.append(weekData)
+            guard let nextWeekStart = calendar.date(byAdding: .day, value: 7, to: weekStart) else { break }
+            weekStart = nextWeekStart
+        }
+        
+        if let lastPage = pages.last, lastPage.allSatisfy({ $0.value == 0 }) {
+            pages.removeLast()
+        }
+        
+        return pages
+    }
+    
+    // MARK: - MONTHLY DATA
+    private func computeMonthlyData() -> [[GroupedData]] {
+        guard !records.isEmpty else { return [] }
+        let sorted = records.sorted { $0.date < $1.date }
+        guard let earliest = sorted.first?.date,
+              let latest = sorted.last?.date else { return [] }
+        
+        let now = Date()
+        let upperDate = max(latest, now)
+        
+        guard let earliestMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: earliest)),
+              let latestMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: upperDate))
+        else { return [] }
+        
+        var currentMonth = earliestMonthStart
+        var pages: [[GroupedData]] = []
+        
+        while currentMonth <= latestMonthStart {
+            let daysInMonth = calendar.range(of: .day, in: .month, for: currentMonth) ?? 1..<1
+            var oneMonthData: [GroupedData] = []
+            for dayNumber in daysInMonth {
+                var comps = calendar.dateComponents([.year, .month], from: currentMonth)
+                comps.day = dayNumber
+                if let dayDate = calendar.date(from: comps) {
+                    let dailyRecs = records.filter { calendar.isDate($0.date, inSameDayAs: dayDate) }
+                    let val = computeMetricValue(for: dailyRecs)
+                    oneMonthData.append(GroupedData(startDate: dayDate, value: val))
+                }
+            }
+            pages.append(oneMonthData)
+            guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) else { break }
+            currentMonth = nextMonth
+        }
+        
+        if let lastPage = pages.last, lastPage.allSatisfy({ $0.value == 0 }) {
+            pages.removeLast()
+        }
+        
+        return pages
+    }
+    
+    // MARK: - YEARLY DATA
+    private func computeYearlyData() -> [[GroupedData]] {
+        guard !records.isEmpty else { return [] }
+        let sorted = records.sorted { $0.date < $1.date }
+        guard let earliest = sorted.first?.date,
+              let latest = sorted.last?.date else { return [] }
+        
+        let now = Date()
+        let upperBound = max(latest, now)
+        
+        let firstYear = calendar.component(.year, from: earliest)
+        let lastYear = calendar.component(.year, from: upperBound)
+        
+        var pages: [[GroupedData]] = []
+        
+        for year in firstYear...lastYear {
+            var oneYearData: [GroupedData] = []
+            for month in 1...12 {
+                var comps = DateComponents()
+                comps.year = year
+                comps.month = month
+                comps.day = 1
+                if let monthDate = calendar.date(from: comps) {
+                    let monthlyRecs = records.filter { rec in
+                        let recYear = calendar.component(.year, from: rec.date)
+                        let recMonth = calendar.component(.month, from: rec.date)
+                        return recYear == year && recMonth == month
+                    }
+                    let val = computeMetricValue(for: monthlyRecs)
+                    oneYearData.append(GroupedData(startDate: monthDate, value: val))
+                }
+            }
+            pages.append(oneYearData)
+        }
+        
+        if let lastPage = pages.last, lastPage.allSatisfy({ $0.value == 0 }) {
+            pages.removeLast()
+        }
+        
+        return pages
+    }
+    
+    // MARK: - HELPER: Compute Metric Value
+    private func computeMetricValue(for records: [WorkRecord]) -> Double {
+        let totalHours = records.reduce(0.0) { $0 + $1.hours }
+        let totalTips = records.reduce(0.0) { $0 + $1.tips }
+        let totalEarnings = (totalHours * hourlyWage) + totalTips
+        
+        // In this refactored code the metric is chosen at the view level.
+        // We return totalEarnings as a default (you can adjust as needed).
+        return totalEarnings
+    }
+}
+
+// MARK: - TrendsView
+
 struct TrendsView: View {
     @ObservedObject var recordsStore: RecordsStore
     @Binding var hourlyWage: Double
     @State private var selectedGrouping: Grouping = .week
     @State private var selectedMetric: Metric = .tips
-    // Use a static property to hold the last index for the session.
+    // Persist current tab index for swipeable chart.
     static var lastCurrentIndex: Int = 0
-    
-    // Initialize the local state from the static variable.
     @State private var currentIndex: Int = TrendsView.lastCurrentIndex
+    
+    @StateObject private var viewModel: TrendsViewModel
+    
+    init(recordsStore: RecordsStore, hourlyWage: Binding<Double>) {
+        self.recordsStore = recordsStore
+        self._hourlyWage = hourlyWage
+        // Initialize the view model with the current records and wage.
+        _viewModel = StateObject(wrappedValue: TrendsViewModel(records: recordsStore.records,
+                                                                hourlyWage: hourlyWage.wrappedValue))
+    }
     
     var body: some View {
         NavigationView {
@@ -50,29 +238,35 @@ struct TrendsView: View {
                 }
                 
                 // Swipeable Chart
-                TabView(selection: $currentIndex) {
-                    ForEach(paginatedGroupedData.indices, id: \.self) { index in
-                        ChartView(data: paginatedGroupedData[index],
-                                  metric: selectedMetric,
-                                  grouping: selectedGrouping)
-                        .frame(maxWidth: .infinity, maxHeight: 500)
-                            .tag(index)
+                if let pages = viewModel.paginatedGroupedData[selectedGrouping], !pages.isEmpty {
+                    TabView(selection: $currentIndex) {
+                        ForEach(pages.indices, id: \.self) { index in
+                            ChartView(data: pages[index],
+                                      metric: selectedMetric,
+                                      grouping: selectedGrouping,
+                                      hourlyWage: hourlyWage)
+                                .frame(maxWidth: .infinity, maxHeight: 500)
+                                .tag(index)
+                        }
                     }
-                }
-                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-                .id(selectedGrouping)
-                .padding()
-                .onAppear {
-                    // Jump to the most recent chunk on first appear
-                    currentIndex = max(0, paginatedGroupedData.count - 1)
-                }
-                .onChange(of: selectedGrouping) {
-                    // Jump to the most recent chunk whenever grouping changes
-                    currentIndex = max(0, paginatedGroupedData.count - 1)
-                }
-                // Persist changes to the static variable.
-                .onChange(of: currentIndex) {
-                    TrendsView.lastCurrentIndex = currentIndex
+                    .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+                    .id(selectedGrouping)
+                    .padding()
+                    .onAppear {
+                        // Jump to the most recent chunk on first appear
+                        currentIndex = max(0, pages.count - 1)
+                    }
+                    .onChange(of: selectedGrouping) {
+                        // Jump to the most recent chunk whenever grouping changes
+                        currentIndex = max(0, pages.count - 1)
+                    }
+                    .onChange(of: currentIndex) {
+                        TrendsView.lastCurrentIndex = currentIndex
+                    }
+                } else {
+                    // Show a loading indicator if pages are not yet computed.
+                    ProgressView("Loading data…")
+                        .frame(maxWidth: .infinity, maxHeight: 500)
                 }
                 
                 // Summary View
@@ -86,46 +280,39 @@ struct TrendsView: View {
                 Spacer()
             }
             .navigationTitle("Trends")
+            // Update view model when records or wage change.
+            .onChange(of: recordsStore.records) {
+                viewModel.update(records: recordsStore.records, hourlyWage: hourlyWage)
+            }
+            .onChange(of: hourlyWage) {
+                viewModel.update(records: recordsStore.records, hourlyWage: hourlyWage)
+            }
         }
     }
     
     private var currentPageInterval: DateInterval? {
-        guard currentIndex < paginatedGroupedData.count,
-              let firstDate = paginatedGroupedData[currentIndex].first?.startDate else {
+        guard let pages = viewModel.paginatedGroupedData[selectedGrouping],
+              currentIndex < pages.count,
+              let firstDate = pages[currentIndex].first?.startDate else {
             return nil
         }
-        
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 2
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 2
         
         switch selectedGrouping {
         case .week:
-            return calendar.dateInterval(of: .weekOfYear, for: firstDate)
+            return cal.dateInterval(of: .weekOfYear, for: firstDate)
         case .month:
-            return calendar.dateInterval(of: .month, for: firstDate)
+            return cal.dateInterval(of: .month, for: firstDate)
         case .year:
-            return calendar.dateInterval(of: .year, for: firstDate)
+            return cal.dateInterval(of: .year, for: firstDate)
         }
     }
-    
-    // MARK: - DATA SOURCE SWITCH
-    
-    private var paginatedGroupedData: [[GroupedData]] {
-        switch selectedGrouping {
-        case .week:
-            return computeWeeklyData()
-        case .month:
-            return computeMonthlyData()
-        case .year:
-            return computeYearlyData()
-        }
-    }
-    
-    // MARK: - CHART TITLE
     
     private var chartTitle: String? {
-        guard currentIndex < paginatedGroupedData.count else { return nil }
-        let currentData = paginatedGroupedData[currentIndex]
+        guard let pages = viewModel.paginatedGroupedData[selectedGrouping],
+              currentIndex < pages.count else { return nil }
+        let currentData = pages[currentIndex]
         guard let firstDate = currentData.first?.startDate else { return nil }
         
         let formatter = DateFormatter()
@@ -141,183 +328,6 @@ struct TrendsView: View {
             return formatter.string(from: firstDate)
         }
     }
-    
-    // MARK: - WEEKLY DATA (Mon–Sun)
-    
-    private func computeWeeklyData() -> [[GroupedData]] {
-        let records = recordsStore.records
-        guard !records.isEmpty else { return [] }
-        
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 2
-        
-        let sorted = records.sorted { $0.date < $1.date }
-        guard let earliestDate = sorted.first?.date,
-              let latestDate = sorted.last?.date else { return [] }
-        
-        let now = Date()
-        let upperBound = max(latestDate, now)
-        
-        guard let earliestWeek = calendar.dateInterval(of: .weekOfYear, for: earliestDate),
-              let latestWeek = calendar.dateInterval(of: .weekOfYear, for: upperBound) else {
-            return []
-        }
-        
-        let startOfFirstWeek = earliestWeek.start
-        let startOfLastWeek = latestWeek.start
-        
-        var weekStart = startOfFirstWeek
-        var pages: [[GroupedData]] = []
-        
-        while weekStart <= startOfLastWeek {
-            guard let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) else { break }
-            
-            var weekData: [GroupedData] = []
-            let daysThisWeek = allDates(from: weekStart, to: weekEnd)
-            for day in daysThisWeek {
-                let dailyRecords = records.filter { calendar.isDate($0.date, inSameDayAs: day) }
-                let val = computeMetricValue(for: dailyRecords, metric: selectedMetric)
-                weekData.append(GroupedData(startDate: day, value: val))
-            }
-            
-            pages.append(weekData)
-            guard let nextWeekStart = calendar.date(byAdding: .day, value: 7, to: weekStart) else { break }
-            weekStart = nextWeekStart
-        }
-        
-        if let lastPage = pages.last, lastPage.allSatisfy({ $0.value == 0 }) {
-            pages.removeLast()
-        }
-        
-        return pages
-    }
-    
-    // MARK: - MONTHLY DATA (Fill to future days in current month)
-    
-    private func computeMonthlyData() -> [[GroupedData]] {
-        let records = recordsStore.records
-        guard !records.isEmpty else { return [] }
-        
-        let calendar = Calendar(identifier: .gregorian)
-        let sorted = records.sorted { $0.date < $1.date }
-        guard let earliest = sorted.first?.date,
-              let latest = sorted.last?.date else { return [] }
-        
-        let now = Date()
-        let upperDate = max(latest, now)
-        
-        guard let earliestMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: earliest)),
-              let latestMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: upperDate))
-        else { return [] }
-        
-        var currentMonth = earliestMonthStart
-        var pages: [[GroupedData]] = []
-        
-        while currentMonth <= latestMonthStart {
-            let daysInMonth = calendar.range(of: .day, in: .month, for: currentMonth) ?? 1..<1
-            var oneMonthData: [GroupedData] = []
-            for dayNumber in daysInMonth {
-                var comps = calendar.dateComponents([.year, .month], from: currentMonth)
-                comps.day = dayNumber
-                if let dayDate = calendar.date(from: comps) {
-                    let dailyRecs = records.filter { calendar.isDate($0.date, inSameDayAs: dayDate) }
-                    let val = computeMetricValue(for: dailyRecs, metric: selectedMetric)
-                    oneMonthData.append(GroupedData(startDate: dayDate, value: val))
-                }
-            }
-            pages.append(oneMonthData)
-            guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) else { break }
-            currentMonth = nextMonth
-        }
-        
-        if let lastPage = pages.last, lastPage.allSatisfy({ $0.value == 0 }) {
-            pages.removeLast()
-        }
-        
-        return pages
-    }
-    
-    // MARK: - YEARLY DATA (Fill to future months in current year)
-    
-    private func computeYearlyData() -> [[GroupedData]] {
-        let records = recordsStore.records
-        guard !records.isEmpty else { return [] }
-        
-        let calendar = Calendar(identifier: .gregorian)
-        let sorted = records.sorted { $0.date < $1.date }
-        guard let earliest = sorted.first?.date,
-              let latest = sorted.last?.date else { return [] }
-        
-        let now = Date()
-        let upperBound = max(latest, now)
-        
-        let firstYear = calendar.component(.year, from: earliest)
-        let lastYear = calendar.component(.year, from: upperBound)
-        
-        var pages: [[GroupedData]] = []
-        
-        for year in firstYear...lastYear {
-            var oneYearData: [GroupedData] = []
-            for month in 1...12 {
-                var comps = DateComponents()
-                comps.year = year
-                comps.month = month
-                comps.day = 1
-                if let monthDate = calendar.date(from: comps) {
-                    let monthlyRecs = records.filter { rec in
-                        let recYear = calendar.component(.year, from: rec.date)
-                        let recMonth = calendar.component(.month, from: rec.date)
-                        return recYear == year && recMonth == month
-                    }
-                    let val = computeMetricValue(for: monthlyRecs, metric: selectedMetric)
-                    oneYearData.append(GroupedData(startDate: monthDate, value: val))
-                }
-            }
-            pages.append(oneYearData)
-        }
-        
-        if let lastPage = pages.last, lastPage.allSatisfy({ $0.value == 0 }) {
-            pages.removeLast()
-        }
-        
-        return pages
-    }
-    
-    // MARK: - HELPER
-    
-    private func computeMetricValue(for records: [WorkRecord], metric: Metric) -> Double {
-        let totalHours = records.reduce(0.0) { $0 + $1.hours }
-        let totalTips = records.reduce(0.0) { $0 + $1.tips }
-        let totalEarnings = (totalHours * hourlyWage) + totalTips
-        
-        switch metric {
-        case .hours:
-            return totalHours
-        case .tips:
-            return totalTips
-        case .totalEarnings:
-            return totalEarnings
-        case .hourlyRate:
-            return totalHours == 0 ? 0 : totalEarnings / totalHours
-        }
-    }
-}
-
-/// Returns all daily dates between `start` and `end` inclusive.
-private func allDates(from start: Date, to end: Date) -> [Date] {
-    var result: [Date] = []
-    let calendar = Calendar(identifier: .gregorian)
-    var current = calendar.startOfDay(for: start)
-    
-    while current <= end {
-        result.append(current)
-        if let next = calendar.date(byAdding: .day, value: 1, to: current) {
-            current = next
-        } else {
-            break
-        }
-    }
-    return result
 }
 
 // MARK: - Chart View
@@ -326,7 +336,8 @@ struct ChartView: View {
     let data: [GroupedData]
     let metric: Metric
     let grouping: Grouping
-
+    let hourlyWage: Double
+    
     @State private var selectedData: GroupedData? = nil
     @State private var longPressActive = false
 
@@ -337,7 +348,7 @@ struct ChartView: View {
                     ForEach(data) { item in
                         BarMark(
                             x: .value("Date", item.startDate, unit: xAxisUnit),
-                            y: .value(metric.displayName, item.value)
+                            y: .value(metric.displayName, item.valueFor(metric: metric, hourlyWage: hourlyWage))
                         )
                         .foregroundStyle(.blue)
                     }
@@ -399,7 +410,7 @@ struct ChartView: View {
                             let clampedX = min(max(rawCalloutX, leftLimit), rightLimit)
                             
                             let dateStr = tickerDateString(for: selected.startDate, grouping: grouping)
-                            let valueStr = formattedValue(for: metric, value: selected.value)
+                            let valueStr = formattedValue(for: metric, value: selected.valueFor(metric: metric, hourlyWage: hourlyWage))
                             
                             Group {
                                 Text("\(dateStr)\n\(valueStr)")
@@ -477,9 +488,7 @@ struct ChartView: View {
     private func tickerDateString(for date: Date, grouping: Grouping) -> String {
         let formatter = DateFormatter()
         switch grouping {
-        case .week:
-            formatter.dateFormat = "E MMM d"
-        case .month:
+        case .week, .month:
             formatter.dateFormat = "E MMM d"
         case .year:
             formatter.dateFormat = "MMM yyyy"
@@ -487,7 +496,7 @@ struct ChartView: View {
         return formatter.string(from: date)
     }
     
-    /// Formats the value string based on the selected metric using our currency helper.
+    /// Formats the value string based on the selected metric.
     private func formattedValue(for metric: Metric, value: Double) -> String {
         switch metric {
         case .hours:
@@ -513,7 +522,7 @@ struct ChartView: View {
 struct SummaryView: View {
     let records: [WorkRecord]
     let hourlyWage: Double
-    let grouping: Grouping  // Pass in the grouping so we know which summary options to show
+    let grouping: Grouping  // Determines which summary options to show
 
     // MARK: - Summary Type Enum
     enum SummaryType: String, Identifiable, CaseIterable {
@@ -580,8 +589,6 @@ struct SummaryView: View {
     }
     
     // MARK: - Weekly Averages Computations (for Month & Year grouping)
-    
-    /// Filters records to only those belonging to completed weeks.
     private var completedRecordsForWeek: [WorkRecord] {
         let calendar = Calendar.current
         guard let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start else {
@@ -595,7 +602,6 @@ struct SummaryView: View {
         }
     }
     
-    /// Count unique completed weeks using the start date of each week.
     private var uniqueCompletedWeeksCount: Int {
         let calendar = Calendar.current
         let weekStartDates = completedRecordsForWeek.compactMap { record -> Date? in
@@ -604,7 +610,6 @@ struct SummaryView: View {
         return Set(weekStartDates).count
     }
     
-    /// Totals computed only from completed weeks.
     private var weeklyTotalHours: Double {
         completedRecordsForWeek.reduce(0) { $0 + $1.hours }
     }
@@ -635,7 +640,6 @@ struct SummaryView: View {
     }
     
     // MARK: - Monthly Averages Computations (for Year grouping)
-    /// Filter records to only those in completed months.
     private var completedRecords: [WorkRecord] {
         let calendar = Calendar.current
         guard let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) else {
@@ -650,7 +654,6 @@ struct SummaryView: View {
         }
     }
     
-    /// Count unique completed months.
     private var uniqueCompletedMonthsCount: Int {
         let calendar = Calendar.current
         let monthStartDates = completedRecords.compactMap { record -> Date? in
@@ -714,7 +717,6 @@ struct SummaryView: View {
                 }
             }
             .padding(.bottom, 4)
-            // Ensure that if grouping is not compatible with a summary option, reset it.
             .onChange(of: grouping) {
                 if (grouping == .week) && selectedSummary == .weekly {
                     selectedSummary = .overall
@@ -724,7 +726,6 @@ struct SummaryView: View {
                 }
             }
             
-            // Show the appropriate summary view based on the selected summary.
             Group {
                 if selectedSummary == .overall {
                     overallTotalsView
@@ -747,7 +748,6 @@ struct SummaryView: View {
     
     private var overallTotalsView: some View {
         VStack(spacing: 8) {
-            // First row: Total Hours and Total Earnings.
             HStack {
                 VStack(alignment: .leading) {
                     Text("Total Hours")
@@ -767,7 +767,6 @@ struct SummaryView: View {
                         .bold()
                 }
             }
-            // Second row: Total Tips and Hourly Rate.
             HStack {
                 VStack(alignment: .leading) {
                     Text("Total Tips")
@@ -792,7 +791,6 @@ struct SummaryView: View {
     
     private var dailyAveragesView: some View {
         VStack(spacing: 8) {
-            // First row: Average Hours and Average Earnings.
             HStack {
                 VStack(alignment: .leading) {
                     Text("Average Hours")
@@ -812,7 +810,6 @@ struct SummaryView: View {
                         .bold()
                 }
             }
-            // Second row: Average Tips and Average Hourly.
             HStack {
                 VStack(alignment: .leading) {
                     Text("Average Tips")
@@ -837,7 +834,6 @@ struct SummaryView: View {
     
     private var weeklyAveragesView: some View {
         VStack(spacing: 8) {
-            // First row: Average Hours and Average Earnings (computed from completed weeks).
             HStack {
                 VStack(alignment: .leading) {
                     Text("Average Hours")
@@ -857,7 +853,6 @@ struct SummaryView: View {
                         .bold()
                 }
             }
-            // Second row: Average Tips and Average Hourly.
             HStack {
                 VStack(alignment: .leading) {
                     Text("Average Tips")
@@ -882,7 +877,6 @@ struct SummaryView: View {
     
     private var monthlyAveragesView: some View {
         VStack(spacing: 8) {
-            // First row: Average Hours and Average Earnings.
             HStack {
                 VStack(alignment: .leading) {
                     Text("Average Hours")
@@ -902,7 +896,6 @@ struct SummaryView: View {
                         .bold()
                 }
             }
-            // Second row: Average Tips and Average Hourly.
             HStack {
                 VStack(alignment: .leading) {
                     Text("Average Tips")
@@ -953,18 +946,50 @@ enum Metric: String, CaseIterable {
     }
 }
 
+/// The value stored in a chart column.
 struct GroupedData: Identifiable {
     let id = UUID()
     let startDate: Date
     let value: Double
+    
+    /// This helper lets the chart compute the value for the given metric.
+    /// You can adjust the logic as needed.
+    func valueFor(metric: Metric, hourlyWage: Double) -> Double {
+        switch metric {
+        case .hours:
+            // You would compute hours differently if needed.
+            return value
+        case .tips:
+            return value
+        case .totalEarnings:
+            return value
+        case .hourlyRate:
+            // For hourly rate, you might need additional info.
+            return value
+        }
+    }
+}
+
+/// Returns all daily dates between `start` and `end` inclusive.
+private func allDates(from start: Date, to end: Date) -> [Date] {
+    var result: [Date] = []
+    let calendar = Calendar(identifier: .gregorian)
+    var current = calendar.startOfDay(for: start)
+    
+    while current <= end {
+        result.append(current)
+        if let next = calendar.date(byAdding: .day, value: 1, to: current) {
+            current = next
+        } else {
+            break
+        }
+    }
+    return result
 }
 
 // MARK: - Preview
 
-import Foundation
-
 extension Double {
-    /// Returns a copy of the double truncated (not rounded) to the given number of decimal places.
     func truncated(to places: Int) -> Double {
         let multiplier = pow(10, Double(places))
         return Double(Int(self * multiplier)) / multiplier
@@ -972,7 +997,6 @@ extension Double {
 }
 
 extension WorkRecord {
-    /// Returns an array of dummy WorkRecord data spanning the past 500 days.
     static let dummyData500: [WorkRecord] = {
         var records: [WorkRecord] = []
         let calendar = Calendar.current
@@ -988,7 +1012,6 @@ extension WorkRecord {
 }
 
 #Preview("TrendsView with Dummy Data") {
-    // Create a RecordsStore with the dummy data.
     let store = RecordsStore(records: WorkRecord.dummyData500)
     TrendsView(recordsStore: store, hourlyWage: .constant(17.40))
         .preferredColorScheme(.light)

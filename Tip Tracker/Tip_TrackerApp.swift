@@ -28,6 +28,10 @@ struct MainAppView: View {
                 .tabItem {
                     Label("Trends", systemImage: "chart.bar.xaxis")
                 }
+            CalendarView(recordsStore: store, hourlyWage: $hourlyWage)
+                .tabItem {
+                    Label("Calendar", systemImage: "calendar")
+                }
             SettingsView(recordsStore: store, hourlyWage: $hourlyWage)
                 .tabItem {
                     Label("Settings", systemImage: "gearshape")

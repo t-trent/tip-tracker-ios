@@ -310,6 +310,14 @@ struct WorkRecord: Identifiable, Codable {
     var date: Date
 }
 
+extension WorkRecord: Equatable {
+    public static func == (lhs: WorkRecord, rhs: WorkRecord) -> Bool {
+        return lhs.date == rhs.date &&
+               lhs.hours == rhs.hours &&
+               lhs.tips == rhs.tips
+    }
+}
+
 struct AddRecordView: View {
     @Environment(\.presentationMode) var presentationMode
     @State private var hoursWorked = ""
