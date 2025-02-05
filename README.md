@@ -30,7 +30,7 @@ Tip Tracker is a SwiftUI-based iOS application designed to help users track thei
    ```bash
    git clone https://github.com/t-trent/tip-tracker-ios
    ```
-2. Open `TipTracker.xcodeproj` in Xcode.
+2. Open `Tip Tracker.xcodeproj` in Xcode.
 3. Build and run the project on the iOS Simulator or your device.
 
 ## Usage
