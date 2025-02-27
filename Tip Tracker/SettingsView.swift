@@ -69,6 +69,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
         }
+        .dynamicTypeSize(.xSmall ... .large)
     }
 }
 
