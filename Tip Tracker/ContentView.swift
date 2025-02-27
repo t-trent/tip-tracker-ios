@@ -29,6 +29,7 @@ struct ContentView: View {
                 }
             }
         }
+        .dynamicTypeSize(.xSmall ... .large)
     }
     
     // MARK: - Helper Computed Properties
@@ -303,7 +304,7 @@ struct ContentView: View {
 
 // MARK: - Models and Other Views
 
-struct WorkRecord: Identifiable, Codable {
+struct WorkRecord: Identifiable, Codable, Hashable {
     var id = UUID()
     var hours: Double
     var tips: Double
