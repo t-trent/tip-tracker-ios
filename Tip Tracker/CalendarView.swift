@@ -20,18 +20,18 @@ struct CalendarView: View {
                 ScrollView(.vertical, showsIndicators: true) {
                     CalendarUIKitView(selectedDate: $selectedDate,
                                       records: recordsStore.records)
-                        .frame(width: UIScreen.main.bounds.width, height: 460)
-                        .padding()
+                    .id(recordsStore.records)   
+                    .padding()
                 }
                 
                 Divider()
-
+                
                 // If a date is selected, show the metrics using DayMetricsView in its own scroll view.
                 if let date = selectedDate {
                     let dayRecords = recordsStore.records.filter {
                         Calendar.current.isDate($0.date, inSameDayAs: date)
                     }
-
+                    
                     if !dayRecords.isEmpty {
                         // Here we wrap the metrics in a vertical scroll view.
                         ScrollView(.vertical, showsIndicators: true) {
@@ -40,52 +40,65 @@ struct CalendarView: View {
                                                hourlyWage: hourlyWage,
                                                date: date,
                                                onEdit: {
-                                                   // For this example, we use the first record for editing.
-                                                   recordToEdit = dayRecords.first
-                                                   isShowingEditSheet = true
-                                               })
+                                    isShowingEditSheet = true
+                                })
                             }
                             .padding(.bottom)
                         }
                         // You can constrain the height if needed.
-                        .frame(maxHeight: 200)
+                        .frame(maxHeight: 160)
                     } else {
                         Text("No records for \(formattedDate(date))")
                             .padding()
                             .padding(.vertical)
                     }
                 }
-
+                
                 Spacer()
+            }
+            .onChange(of: selectedDate) {
+                if let newDate = selectedDate {
+                    recordToEdit = recordsStore.records.first(where: {
+                        Calendar.current.isDate($0.date, inSameDayAs: newDate)
+                    })
+                } else {
+                    recordToEdit = nil
+                }
             }
             .navigationTitle("Calendar")
             .sheet(isPresented: $isShowingEditSheet) {
-                if let record = recordToEdit,
+                if let selectedDate = selectedDate,
+                   let record = recordsStore.records.first(where: {
+                       Calendar.current.isDate($0.date, inSameDayAs: selectedDate)
+                   }),
                    let index = recordsStore.records.firstIndex(where: { $0.id == record.id }) {
                     NavigationView {
                         EditRecordView(record: $recordsStore.records[index],
                                        onDelete: {
-                                           recordsStore.records.remove(at: index)
-                                           isShowingEditSheet = false
-                                       },
+                            recordsStore.records.remove(at: index)
+                            UserDefaults.standard.saveRecords(recordsStore.records)
+                            isShowingEditSheet = false
+                        },
                                        onSave: {
-                                           UserDefaults.standard.saveRecords(recordsStore.records)
-                                           isShowingEditSheet = false
-                                       })
-                            .navigationTitle("Edit Record")
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Cancel") {
-                                        isShowingEditSheet = false
-                                    }
+                            UserDefaults.standard.saveRecords(recordsStore.records)
+                            isShowingEditSheet = false
+                        })
+                        .navigationTitle("Edit Record")
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cancel") {
+                                    isShowingEditSheet = false
                                 }
                             }
+                        }
                     }
                 } else {
                     Text("No record selected")
                 }
             }
+
         }
+        .dynamicTypeSize(.xSmall ... .large)
     }
 
     // A helper to format the selected date.
@@ -163,17 +176,8 @@ struct CalendarUIKitView: UIViewRepresentable {
                 parent.selectedDate = nil
                 return
             }
-
-            // If the tapped date is already selected, de-select it.
-            if let currentSelectedDate = parent.selectedDate,
-               Calendar.current.isDate(tappedDate, inSameDayAs: currentSelectedDate) {
-                // Clear the selection in the calendar view.
-                selection.setSelected(nil, animated: true)
-                parent.selectedDate = nil
-            } else {
-                // Otherwise, update the selectedDate with the tapped date.
-                parent.selectedDate = tappedDate
-            }
+            // Always update the selected date (do not deselect if already selected)
+            parent.selectedDate = tappedDate
         }
 
         // MARK: - UICalendarViewDelegate
