@@ -321,6 +321,7 @@ struct TrendsView: View {
                 viewModel.update(records: recordsStore.records, hourlyWage: hourlyWage)
             }
         }
+        .dynamicTypeSize(.xSmall ... .large)
     }
     
     private var currentPageInterval: DateInterval? {
@@ -362,6 +363,7 @@ struct TrendsView: View {
         }
     }
 }
+
 
 // MARK: - Chart View
 
@@ -415,6 +417,17 @@ struct ChartView: View {
                                 if let date = value.as(Date.self) {
                                     Text(xAxisLabel(for: date))
                                 }
+                            }
+                        }
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(values: .automatic) { value in
+                        if let doubleValue = value.as(Double.self) {
+                            AxisGridLine()
+                            AxisTick()
+                            AxisValueLabel {
+                                formattedLabel(for: doubleValue, metric: metric)
                             }
                         }
                     }
@@ -538,6 +551,15 @@ struct ChartView: View {
             return formatCurrency(value)
         case .hourlyRate:
             return formatCurrency(value) + "/hr"
+        }
+    }
+    
+    private func formattedLabel(for value: Double, metric: Metric) -> Text {
+        switch metric {
+        case .tips, .hourlyRate, .totalEarnings:
+            return Text("$\(value, specifier: "%.0f")")
+        case .hours:
+            return Text("\(value, specifier: "%.0f")h")
         }
     }
     
