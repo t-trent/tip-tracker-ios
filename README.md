@@ -21,8 +21,7 @@ Tip Tracker is a SwiftUI-based iOS application designed to help users track thei
 ## Requirements
 
 - iOS 16 or later  
-- Xcode 14 or later  
-- SwiftUI and SwiftData (for local persistence)
+- Xcode 14 or later
 
 ## Installation
 
