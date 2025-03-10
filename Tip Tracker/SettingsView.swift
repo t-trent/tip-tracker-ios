@@ -4,7 +4,6 @@ struct SettingsView: View {
     @ObservedObject var recordsStore: RecordsStore
     @Binding var hourlyWage: Double
 
-    // Now the initializer accepts a RecordsStore.
     init(recordsStore: RecordsStore, hourlyWage: Binding<Double>) {
         self._recordsStore = ObservedObject(wrappedValue: recordsStore)
         _hourlyWage = hourlyWage

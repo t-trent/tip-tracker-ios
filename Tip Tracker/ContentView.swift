@@ -173,7 +173,6 @@ struct ContentView: View {
             DisclosureGroup(
                 isExpanded: $isExpanded,
                 content: {
-                    // Expanded content: now row 1 shows Hours and Earnings, row 2 shows Tips and Hourly Rate.
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             VStack(alignment: .leading) {
@@ -217,7 +216,6 @@ struct ContentView: View {
                     .padding(.top, 8)
                 },
                 label: {
-                    // The collapsed header remains unchanged.
                     HStack {
                         Text(headerText)
                             .font(.title3)

@@ -15,8 +15,6 @@ struct CalendarView: View {
     var body: some View {
         NavigationView {
             VStack {
-                // Wrap the calendar in a scroll view.
-                // Here we use horizontal scrolling, but you can also try .vertical
                 ScrollView(.vertical, showsIndicators: true) {
                     CalendarUIKitView(selectedDate: $selectedDate,
                                       records: recordsStore.records)
@@ -26,14 +24,12 @@ struct CalendarView: View {
                 
                 Divider()
                 
-                // If a date is selected, show the metrics using DayMetricsView in its own scroll view.
                 if let date = selectedDate {
                     let dayRecords = recordsStore.records.filter {
                         Calendar.current.isDate($0.date, inSameDayAs: date)
                     }
                     
                     if !dayRecords.isEmpty {
-                        // Here we wrap the metrics in a vertical scroll view.
                         ScrollView(.vertical, showsIndicators: true) {
                             VStack(spacing: 16) {
                                 DayMetricsView(dayRecords: dayRecords,
@@ -45,7 +41,6 @@ struct CalendarView: View {
                             }
                             .padding(.bottom)
                         }
-                        // You can constrain the height if needed.
                         .frame(maxHeight: 160)
                     } else {
                         Text("No records for \(formattedDate(date))")

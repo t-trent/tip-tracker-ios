@@ -11,7 +11,6 @@ class RecordsStore: ObservableObject {
     }
 }
 
-// 1) Create a new container view for the tabs
 struct MainAppView: View {
     
     @State private var store = RecordsStore(records: UserDefaults.standard.loadRecords())
@@ -40,7 +39,6 @@ struct MainAppView: View {
     }
 }
 
-// 2) In your App entry point, show MainAppView
 @main
 struct MyTipTrackerApp: App {
     var body: some Scene {
