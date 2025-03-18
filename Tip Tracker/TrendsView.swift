@@ -244,34 +244,99 @@ struct TrendsView: View {
     
     var body: some View {
         NavigationView {
-            VStack {
-                // Metric Picker
-                Picker("Metric", selection: $selectedMetric) {
-                    ForEach(Metric.allCases, id: \.self) { metric in
-                        Text(metric.displayName).tag(metric)
+            VStack(alignment: .leading, spacing: 16) {
+                
+                // Metric and Grouping Dropdown
+                HStack(spacing: 4) {
+                    Text("Viewing")
+                        .font(.title2)
+                    Menu {
+                        ForEach(Metric.allCases, id: \.self) { metric in
+                            Button(action: { selectedMetric = metric }) {
+                                Text(metric.displayName)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Text(selectedMetric.displayName)
+                                .font(.title2)
+                            Image(systemName: "chevron.down")
+                        }
+                        .padding(4)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(4)
                     }
+                    .fixedSize()
+                    Text("by")
+                        .font(.title2)
+                    // Grouping picker:
+                    Menu {
+                        ForEach(Grouping.allCases, id: \.self) { grouping in
+                            Button(action: { selectedGrouping = grouping }) {
+                                Text(grouping.displayName)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Text(selectedGrouping.displayName)
+                                .font(.title2)
+                            Image(systemName: "chevron.down")
+                        }
+                        .padding(4)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(4)
+                    }
+                    .fixedSize()
                 }
-                .pickerStyle(.segmented)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
                 
-                // Grouping Picker
-                Picker("Grouping", selection: $selectedGrouping) {
-                    ForEach(Grouping.allCases, id: \.self) { grouping in
-                        Text(grouping.displayName).tag(grouping)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                
-                if let title = chartTitle {
-                    Text(title)
-                        .font(.headline)
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
-                }
-                
-                // Swipeable Chart
+                // Chart Title with Dropdown for page selection.
                 if let pages = viewModel.paginatedGroupedData[selectedGrouping], !pages.isEmpty {
+                    // Ensure currentIndex is within bounds.
+                    let safeIndex = pages.indices.contains(currentIndex) ? currentIndex : (pages.count - 1)
+                    
+                    // Build titles for each page.
+                    let titles: [String] = pages.map { page in
+                        guard let firstDate = page.first?.startDate else { return "Unknown" }
+                        let formatter = DateFormatter()
+                        switch selectedGrouping {
+                        case .week:
+                            formatter.dateFormat = "MMM d, yyyy"
+                            return "Week of \(formatter.string(from: firstDate))"
+                        case .month:
+                            formatter.dateFormat = "MMMM yyyy"
+                            return formatter.string(from: firstDate)
+                        case .year:
+                            formatter.dateFormat = "yyyy"
+                            return formatter.string(from: firstDate)
+                        }
+                    }
+                    
+                    // Picker Menu for selecting a page.
+                    Menu {
+                        // Show newest pages first.
+                        ForEach(Array(pages.indices.reversed()), id: \.self) { index in
+                            Button(action: {
+                                currentIndex = index
+                            }) {
+                                Text(titles[index])
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Text(titles[safeIndex])
+                                .font(.headline)
+                            Image(systemName: "chevron.down")
+                        }
+                        .padding(4)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(4)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    
+                    // Swipeable TabView for the Chart.
                     TabView(selection: $currentIndex) {
                         ForEach(pages.indices, id: \.self) { index in
                             ChartView(data: pages[index],
@@ -286,34 +351,30 @@ struct TrendsView: View {
                     .id(selectedGrouping)
                     .padding()
                     .onAppear {
-                        // Jump to the most recent chunk on first appear
-                        currentIndex = max(0, pages.count - 1)
+                        // Default to the newest page.
+                        currentIndex = pages.count - 1
                     }
                     .onChange(of: selectedGrouping) {
-                        // Jump to the most recent chunk whenever grouping changes
-                        currentIndex = max(0, pages.count - 1)
-                    }
-                    .onChange(of: currentIndex) {
-                        TrendsView.lastCurrentIndex = currentIndex
+                        // Reset selection when grouping changes.
+                        currentIndex = pages.count - 1
                     }
                 } else {
-                    // Show a loading indicator if pages are not yet computed.
                     ProgressView("Loading data…")
                         .frame(maxWidth: .infinity, maxHeight: 500)
                 }
+
                 
                 // Summary View
                 if let dateRange = currentPageInterval {
-                    // Filter the records to include only those in the current page’s date range.
                     let filteredRecords = recordsStore.records.filter { dateRange.contains($0.date) }
                     SummaryView(records: filteredRecords,
                                 hourlyWage: hourlyWage,
                                 grouping: selectedGrouping)
+                        .padding(.horizontal)
                 }
                 Spacer()
             }
             .navigationTitle("Trends")
-            // Update view model when records or wage change.
             .onChange(of: recordsStore.records) {
                 viewModel.update(records: recordsStore.records, hourlyWage: hourlyWage)
             }
@@ -323,6 +384,8 @@ struct TrendsView: View {
         }
         .dynamicTypeSize(.xSmall ... .large)
     }
+
+
     
     private var currentPageInterval: DateInterval? {
         guard let pages = viewModel.paginatedGroupedData[selectedGrouping],
