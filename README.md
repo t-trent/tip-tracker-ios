@@ -1,22 +1,20 @@
 # Tip Tracker
 
-Tip Tracker is a SwiftUI-based iOS application designed to help users track their work hours and tip earnings. The app provides detailed record-keeping, trends analysis, and a calendar view that highlights days with entries, making it easier to monitor your earnings over time.
+Tip Tracker is a SwiftUI-based iOS application to help users track their work hours and tip earnings. The app provides detailed record-keeping, trends analysis, and a calendar view that highlights days with entries, making it easier to monitor your earnings over time.
 
 ## Features
 
 - **Record Tracking:**  
-  Log daily work records including hours worked and tips received. Edit or delete records as needed.
+  Log daily work records including hours worked and tips received.
 
 - **Trends Analysis:**  
-  View charts and summary metrics that display overall, daily, weekly, and monthly earnings trends.  
-  The app computes averages based on completed periods for accurate insights.
+  View charts and summary metrics that display overall, daily, weekly, and monthly earnings trends.
 
 - **Calendar View:**  
-  A modern calendar (using `UICalendarView`) marks days with records with a dot. Tap a day to view aggregated metrics and quickly edit records.
+  A calendar marks days with records with a dot. Tap a day to view aggregated metrics and quickly edit records.
 
 - **Settings:**  
-  Customize settings such as your hourly wage, currency & locale, and other preferences.  
-  (Additional options are planned for future releases.)
+  Customize settings such as your hourly wage, currency & locale, and other preferences.
 
 ## Requirements
 
@@ -58,4 +56,4 @@ Tip Tracker is a SwiftUI-based iOS application designed to help users track thei
 
 ## Architecture
 
-Tip Tracker uses a shared `RecordsStore` (an observable object) to manage work records across the app. This ensures that changes in one view (e.g., adding a record in the Home tab) are immediately reflected in the Trends, Calendar, and Settings views.
+Tip Tracker uses a shared `RecordsStore` to manage work records across the app. This ensures that changes in one view (e.g., adding a record in the Home tab) are immediately reflected in the Trends, Calendar, and Settings views.
