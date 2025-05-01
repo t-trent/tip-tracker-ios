@@ -242,6 +242,39 @@ struct TrendsView: View {
                                                                 hourlyWage: hourlyWage.wrappedValue))
     }
     
+    private var pages: [[GroupedMetrics]] {
+        viewModel.paginatedGroupedData[selectedGrouping] ?? []
+      }
+
+      private var currentPageData: [GroupedMetrics] {
+        guard pages.indices.contains(currentIndex) else { return [] }
+        return pages[currentIndex]
+      }
+
+      /// Sum of the selected metric (for everything except hourlyRate)
+      private var currentPageTotal: Double {
+        currentPageData
+          .map { $0.valueFor(metric: selectedMetric) }
+          .reduce(0, +)
+      }
+
+      /// Weighted average for hourlyRate: totalEarnings / totalHours
+      private var currentPageAverageHourly: Double {
+        let totalHours = currentPageData.map(\.hours).reduce(0, +)
+        let totalEarnings = currentPageData.map(\.earnings).reduce(0, +)
+        return totalHours > 0 ? totalEarnings / totalHours : 0
+      }
+    
+    /// Headroom‐padded max for only the current page
+    private var yScaleMaxes: [Double] {
+        pages.map { page in
+          let rawMax = page
+            .map { $0.valueFor(metric: selectedMetric) }
+            .max() ?? 0
+          return rawMax * 1.5
+        }
+      }
+    
     var body: some View {
         NavigationView {
             VStack(alignment: .leading, spacing: 16) {
@@ -250,6 +283,7 @@ struct TrendsView: View {
                 HStack(spacing: 4) {
                     Text("Viewing")
                         .font(.title2)
+                        .fontWeight(.bold)
                     Menu {
                         ForEach(Metric.allCases, id: \.self) { metric in
                             Button(action: { selectedMetric = metric }) {
@@ -260,6 +294,7 @@ struct TrendsView: View {
                         HStack(spacing: 2) {
                             Text(selectedMetric.displayName)
                                 .font(.title2)
+                                .fontWeight(.bold)
                             Image(systemName: "chevron.down")
                         }
                         .padding(4)
@@ -269,6 +304,7 @@ struct TrendsView: View {
                     .fixedSize()
                     Text("by")
                         .font(.title2)
+                        .fontWeight(.bold)
                     // Grouping picker:
                     Menu {
                         ForEach(Grouping.allCases, id: \.self) { grouping in
@@ -280,6 +316,7 @@ struct TrendsView: View {
                         HStack(spacing: 2) {
                             Text(selectedGrouping.displayName)
                                 .font(.title2)
+                                .fontWeight(.bold)
                             Image(systemName: "chevron.down")
                         }
                         .padding(4)
@@ -336,20 +373,49 @@ struct TrendsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
                     
+                    // Total summary, above the chart picker
+                    VStack(alignment: .leading, spacing: 4) {
+                            if selectedMetric == .hourlyRate {
+                              Text("AVERAGE HOURLY")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                              Text(formatCurrency(currentPageAverageHourly))
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            } else {
+                              Text("TOTAL \(selectedMetric.displayName.uppercased())")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                              if selectedMetric == .tips || selectedMetric == .totalEarnings {
+                                Text(formatCurrency(currentPageTotal))
+                                  .font(.headline)
+                                  .frame(maxWidth: .infinity, alignment: .leading)
+                              } else { // hours
+                                Text(String(format: "%.2f", currentPageTotal))
+                                  .font(.headline)
+                                  .frame(maxWidth: .infinity, alignment: .leading)
+                              }
+                            }
+                          }
+                          .padding(.horizontal)
                     // Swipeable TabView for the Chart.
                     TabView(selection: $currentIndex) {
                         ForEach(pages.indices, id: \.self) { index in
                             ChartView(data: pages[index],
                                       metric: selectedMetric,
                                       grouping: selectedGrouping,
-                                      hourlyWage: hourlyWage)
+                                      hourlyWage: hourlyWage,
+                                      yAxisMax: yScaleMaxes[index])
                                 .frame(maxWidth: .infinity, maxHeight: 500)
                                 .tag(index)
                         }
                     }
                     .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
                     .id(selectedGrouping)
-                    .padding()
+                    .padding(.horizontal)
                     .onAppear {
                         // Default to the newest page.
                         currentIndex = pages.count - 1
@@ -435,6 +501,7 @@ struct ChartView: View {
     let metric: Metric
     let grouping: Grouping
     let hourlyWage: Double
+    let yAxisMax: Double
     
     @State private var selectedData: GroupedMetrics? = nil
     @State private var longPressActive = false
@@ -458,6 +525,7 @@ struct ChartView: View {
                     }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
+                .chartYScale(domain: 0...yAxisMax)
                 .chartXAxis {
                     if grouping == .month {
                         AxisMarks(
