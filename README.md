@@ -39,7 +39,7 @@ Tip Tracker is a SwiftUI-based iOS application to help users track their work ho
 
 - **Trends:**  
   Analyze your earnings with various chart views and summary statistics.  
-  Select different groupings (Week, Month, Year) and swipe through time increments to see different trends.
+  Select different groupings (Week, Month, Year) and swipe through time increments to see different trends. 
   
   ![TrendsView](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/trends-dark.png)
 
