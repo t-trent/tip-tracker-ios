@@ -277,168 +277,175 @@ struct TrendsView: View {
     
     var body: some View {
         NavigationView {
-            VStack(alignment: .leading, spacing: 16) {
-                
-                // Metric and Grouping Dropdown
-                HStack(spacing: 4) {
-                    Text("Viewing")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    Menu {
-                        ForEach(Metric.allCases, id: \.self) { metric in
-                            Button(action: { selectedMetric = metric }) {
-                                Text(metric.displayName)
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 2) {
-                            Text(selectedMetric.displayName)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                            Image(systemName: "chevron.down")
-                        }
-                        .padding(4)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(4)
+            Group {
+                if recordsStore.records.isEmpty {
+                    // No‑data placeholder
+                    VStack(spacing: 16) {
+                        Image(systemName: "chart.bar")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                        Text("No trends yet")
+                            .font(.title2)
+                            .bold()
+                        Text("Head over to the Home tab and tap “+” to add your first record, then come back here to see your charts.")
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal)
                     }
-                    .fixedSize()
-                    Text("by")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    // Grouping picker:
-                    Menu {
-                        ForEach(Grouping.allCases, id: \.self) { grouping in
-                            Button(action: { selectedGrouping = grouping }) {
-                                Text(grouping.displayName)
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 2) {
-                            Text(selectedGrouping.displayName)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                            Image(systemName: "chevron.down")
-                        }
-                        .padding(4)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(4)
-                    }
-                    .fixedSize()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                
-                // Chart Title with Dropdown for page selection.
-                if let pages = viewModel.paginatedGroupedData[selectedGrouping], !pages.isEmpty {
-                    // Ensure currentIndex is within bounds.
-                    let safeIndex = pages.indices.contains(currentIndex) ? currentIndex : (pages.count - 1)
-                    
-                    // Build titles for each page.
-                    let titles: [String] = pages.map { page in
-                        guard let firstDate = page.first?.startDate else { return "Unknown" }
-                        let formatter = DateFormatter()
-                        switch selectedGrouping {
-                        case .week:
-                            formatter.dateFormat = "MMM d, yyyy"
-                            return "Week of \(formatter.string(from: firstDate))"
-                        case .month:
-                            formatter.dateFormat = "MMMM yyyy"
-                            return formatter.string(from: firstDate)
-                        case .year:
-                            formatter.dateFormat = "yyyy"
-                            return formatter.string(from: firstDate)
-                        }
-                    }
-                    
-                    // Picker Menu for selecting a page.
-                    Menu {
-                        // Show newest pages first.
-                        ForEach(Array(pages.indices.reversed()), id: \.self) { index in
-                            Button(action: {
-                                currentIndex = index
-                            }) {
-                                Text(titles[index])
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 2) {
-                            Text(titles[safeIndex])
-                                .font(.headline)
-                            Image(systemName: "chevron.down")
-                        }
-                        .padding(4)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(4)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    
-                    // Total summary, above the chart picker
-                    VStack(alignment: .leading, spacing: 4) {
-                            if selectedMetric == .hourlyRate {
-                              Text("AVERAGE HOURLY")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                              Text(formatCurrency(currentPageAverageHourly))
-                                .font(.headline)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                            } else {
-                              Text("TOTAL \(selectedMetric.displayName.uppercased())")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                              if selectedMetric == .tips || selectedMetric == .totalEarnings {
-                                Text(formatCurrency(currentPageTotal))
-                                  .font(.headline)
-                                  .frame(maxWidth: .infinity, alignment: .leading)
-                              } else { // hours
-                                Text(String(format: "%.2f", currentPageTotal))
-                                  .font(.headline)
-                                  .frame(maxWidth: .infinity, alignment: .leading)
-                              }
-                            }
-                          }
-                          .padding(.horizontal)
-                    // Swipeable TabView for the Chart.
-                    TabView(selection: $currentIndex) {
-                        ForEach(pages.indices, id: \.self) { index in
-                            ChartView(data: pages[index],
-                                      metric: selectedMetric,
-                                      grouping: selectedGrouping,
-                                      hourlyWage: hourlyWage,
-                                      yAxisMax: yScaleMaxes[index])
-                                .frame(maxWidth: .infinity, maxHeight: 500)
-                                .tag(index)
-                        }
-                    }
-                    .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-                    .id(selectedGrouping)
-                    .padding(.horizontal)
-                    .onAppear {
-                        // Default to the newest page.
-                        currentIndex = pages.count - 1
-                    }
-                    .onChange(of: selectedGrouping) {
-                        // Reset selection when grouping changes.
-                        currentIndex = pages.count - 1
-                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ProgressView("Loading data…")
-                        .frame(maxWidth: .infinity, maxHeight: 500)
-                }
-
-                
-                // Summary View
-                if let dateRange = currentPageInterval {
-                    let filteredRecords = recordsStore.records.filter { dateRange.contains($0.date) }
-                    SummaryView(records: filteredRecords,
-                                hourlyWage: hourlyWage,
-                                grouping: selectedGrouping)
+                    // Your existing Trends content
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Metric and Grouping Dropdown
+                        HStack(spacing: 4) {
+                            Text("Viewing")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            Menu {
+                                ForEach(Metric.allCases, id: \.self) { metric in
+                                    Button(action: { selectedMetric = metric }) {
+                                        Text(metric.displayName)
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 2) {
+                                    Text(selectedMetric.displayName)
+                                        .font(.title2)
+                                        .fontWeight(.bold)
+                                    Image(systemName: "chevron.down")
+                                }
+                                .padding(4)
+                                .background(Color(.systemGray5))
+                                .cornerRadius(4)
+                            }
+                            .fixedSize()
+                            Text("by")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            Menu {
+                                ForEach(Grouping.allCases, id: \.self) { grouping in
+                                    Button(action: { selectedGrouping = grouping }) {
+                                        Text(grouping.displayName)
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 2) {
+                                    Text(selectedGrouping.displayName)
+                                        .font(.title2)
+                                        .fontWeight(.bold)
+                                    Image(systemName: "chevron.down")
+                                }
+                                .padding(4)
+                                .background(Color(.systemGray5))
+                                .cornerRadius(4)
+                            }
+                            .fixedSize()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
+                        
+                        // Page Picker
+                        if let pages = viewModel.paginatedGroupedData[selectedGrouping], !pages.isEmpty {
+                            let safeIndex = pages.indices.contains(currentIndex) ? currentIndex : (pages.count - 1)
+                            let titles: [String] = pages.map { page in
+                                guard let firstDate = page.first?.startDate else { return "" }
+                                let formatter = DateFormatter()
+                                switch selectedGrouping {
+                                case .week:
+                                    formatter.dateFormat = "MMM d, yyyy"
+                                    return "Week of \(formatter.string(from: firstDate))"
+                                case .month:
+                                    formatter.dateFormat = "MMMM yyyy"
+                                    return formatter.string(from: firstDate)
+                                case .year:
+                                    formatter.dateFormat = "yyyy"
+                                    return formatter.string(from: firstDate)
+                                }
+                            }
+                            
+                            Menu {
+                                ForEach(Array(pages.indices.reversed()), id: \.self) { index in
+                                    Button(action: { currentIndex = index }) {
+                                        Text(titles[index])
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 2) {
+                                    Text(titles[safeIndex])
+                                        .font(.headline)
+                                    Image(systemName: "chevron.down")
+                                }
+                                .padding(4)
+                                .background(Color(.systemGray5))
+                                .cornerRadius(4)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal)
+                            
+                            // Summary above chart
+                            VStack(alignment: .leading, spacing: 4) {
+                                if selectedMetric == .hourlyRate {
+                                    Text("AVERAGE HOURLY")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text(formatCurrency(currentPageAverageHourly))
+                                        .font(.headline)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    Text("TOTAL \(selectedMetric.displayName.uppercased())")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    if selectedMetric == .tips || selectedMetric == .totalEarnings {
+                                        Text(formatCurrency(currentPageTotal))
+                                            .font(.headline)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    } else {
+                                        Text(String(format: "%.2f", currentPageTotal))
+                                            .font(.headline)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal)
+                            
+                            // Chart
+                            TabView(selection: $currentIndex) {
+                                ForEach(pages.indices, id: \.self) { index in
+                                    ChartView(
+                                        data: pages[index],
+                                        metric: selectedMetric,
+                                        grouping: selectedGrouping,
+                                        hourlyWage: hourlyWage,
+                                        yAxisMax: yScaleMaxes[index]
+                                    )
+                                    .frame(maxWidth: .infinity, maxHeight: 500)
+                                    .tag(index)
+                                }
+                            }
+                            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+                            .id(selectedGrouping)
+                            .padding(.horizontal)
+                            .onAppear { currentIndex = pages.count - 1 }
+                            .onChange(of: selectedGrouping) { currentIndex = pages.count - 1 }
+                        } else {
+                            ProgressView("Loading data…")
+                                .frame(maxWidth: .infinity, maxHeight: 500)
+                        }
+                        
+                        // Summary View
+                        if let dateRange = currentPageInterval {
+                            let filtered = recordsStore.records.filter { dateRange.contains($0.date) }
+                            SummaryView(
+                                records: filtered,
+                                hourlyWage: hourlyWage,
+                                grouping: selectedGrouping
+                            )
+                            .padding(.horizontal)
+                        }
+                        
+                        Spacer()
+                    }
                 }
-                Spacer()
             }
             .navigationTitle("Trends")
             .onChange(of: recordsStore.records) {
@@ -447,9 +454,10 @@ struct TrendsView: View {
             .onChange(of: hourlyWage) {
                 viewModel.update(records: recordsStore.records, hourlyWage: hourlyWage)
             }
+            .dynamicTypeSize(.xSmall ... .large)
         }
-        .dynamicTypeSize(.xSmall ... .large)
     }
+
 
 
     

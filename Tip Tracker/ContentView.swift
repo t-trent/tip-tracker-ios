@@ -6,31 +6,49 @@ struct ContentView: View {
     @State private var isPresentingSheet = false
     
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(sortedWeekStarts, id: \.self) { weekStart in
-                    sectionView(for: weekStart)
+            NavigationView {
+                Group {
+                    if recordsStore.records.isEmpty {
+                        // No‑records placeholder
+                        VStack(spacing: 16) {
+                            Image(systemName: "tray")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No records yet")
+                                .font(.title2)
+                                .bold()
+                            Text("Tap the “+” button above to add your first work record.")
+                                .multilineTextAlignment(.center)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                    } else {
+                        // Your existing list
+                        List {
+                            ForEach(sortedWeekStarts, id: \.self) { weekStart in
+                                sectionView(for: weekStart)
+                            }
+                        }
+                    }
                 }
-            }
-            .navigationTitle("Tip Tracker")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { isPresentingSheet = true }) {
-                        Image(systemName: "plus")
+                .navigationTitle("Tip Tracker")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: { isPresentingSheet = true }) {
+                            Image(systemName: "plus")
+                        }
+                    }
+                }
+                .sheet(isPresented: $isPresentingSheet) {
+                    AddRecordView { newRecord in
+                        recordsStore.records.append(newRecord)
+                        UserDefaults.standard.saveRecords(recordsStore.records)
+                        isPresentingSheet = false
                     }
                 }
             }
-            .sheet(isPresented: $isPresentingSheet) {
-                AddRecordView { newRecord in
-                    // Append new record to the shared store.
-                    recordsStore.records.append(newRecord)
-                    UserDefaults.standard.saveRecords(recordsStore.records)
-                    isPresentingSheet = false
-                }
-            }
+            .dynamicTypeSize(.xSmall ... .large)
         }
-        .dynamicTypeSize(.xSmall ... .large)
-    }
     
     // MARK: - Helper Computed Properties
     
@@ -329,26 +347,47 @@ struct AddRecordView: View {
         NavigationView {
             Form {
                 Section(header: Text("Work Details")) {
-                    TextField("Hours Worked", text: $hoursWorked)
-                        .keyboardType(.decimalPad)
-                    TextField("Tips Earned", text: $tipsEarned)
-                        .keyboardType(.decimalPad)
+                    // Hours Worked field with clear button
+                    ZStack(alignment: .trailing) {
+                        TextField("Hours Worked", text: $hoursWorked)
+                            .keyboardType(.decimalPad)
+                            .padding(.trailing, 30)   // space for the button
+                        if !hoursWorked.isEmpty {
+                            Button(action: { hoursWorked = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.trailing, 8)
+                        }
+                    }
+                    
+                    // Tips Earned field with clear button
+                    ZStack(alignment: .trailing) {
+                        TextField("Tips Earned", text: $tipsEarned)
+                            .keyboardType(.decimalPad)
+                            .padding(.trailing, 30)
+                        if !tipsEarned.isEmpty {
+                            Button(action: { tipsEarned = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.trailing, 8)
+                        }
+                    }
+                    
                     DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
                 }
             }
             .navigationTitle("Add Record")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        presentationMode.wrappedValue.dismiss()
-                    }
+                    Button("Cancel") { presentationMode.wrappedValue.dismiss() }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         if let hours = Double(hoursWorked),
                            let tips = Double(tipsEarned) {
-                            let newRecord = WorkRecord(hours: hours, tips: tips, date: selectedDate)
-                            onSave(newRecord)
+                            onSave(WorkRecord(hours: hours, tips: tips, date: selectedDate))
                         }
                     }
                 }
@@ -362,12 +401,18 @@ struct EditRecordView: View {
     @Binding var record: WorkRecord
     var onDelete: () -> Void
     var onSave: () -> Void
-    
+
+    // 1) Track which field is focused
+    enum Field: Hashable {
+        case hours, tips
+    }
+    @FocusState private var focusedField: Field?
+
     @State private var hoursText: String = ""
     @State private var tipsText: String = ""
     @State private var selectedDate: Date
     @State private var isShowingDeleteConfirmation = false
-    
+
     init(record: Binding<WorkRecord>,
          onDelete: @escaping () -> Void,
          onSave: @escaping () -> Void) {
@@ -376,24 +421,60 @@ struct EditRecordView: View {
         self.onSave = onSave
         _selectedDate = State(initialValue: record.wrappedValue.date)
     }
-    
+
     var body: some View {
         Form {
             Section(header: Text("Edit Work Details")) {
                 HStack {
                     Text("Hours")
                         .frame(width: 100, alignment: .leading)
-                    TextField("", text: $hoursText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.leading)
+
+                    ZStack(alignment: .trailing) {
+                        TextField("", text: $hoursText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.leading)
+                            // 2) bind focus state
+                            .focused($focusedField, equals: .hours)
+                            .padding(.trailing, 30)
+
+                        if !hoursText.isEmpty {
+                            Button {
+                                hoursText = ""
+                                // 3) immediately re‑focus it
+                                focusedField = .hours
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.trailing, 8)
+                        }
+                    }
                 }
+
                 HStack {
                     Text("Tips Earned")
                         .frame(width: 100, alignment: .leading)
-                    TextField("", text: $tipsText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.leading)
+
+                    ZStack(alignment: .trailing) {
+                        TextField("", text: $tipsText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.leading)
+                            .focused($focusedField, equals: .tips)
+                            .padding(.trailing, 30)
+
+                        if !tipsText.isEmpty {
+                            Button {
+                                tipsText = ""
+                                focusedField = .tips
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.trailing, 8)
+                        }
+                    }
                 }
+
                 HStack {
                     Text("Date")
                         .frame(width: 100, alignment: .leading)
@@ -401,6 +482,7 @@ struct EditRecordView: View {
                         .labelsHidden()
                 }
             }
+
             Section {
                 Button("Delete Record", role: .destructive) {
                     isShowingDeleteConfirmation = true
@@ -412,12 +494,8 @@ struct EditRecordView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Save") {
-                    if let parsedHours = Double(hoursText) {
-                        record.hours = parsedHours
-                    }
-                    if let parsedTips = Double(tipsText) {
-                        record.tips = parsedTips
-                    }
+                    if let h = Double(hoursText) { record.hours = h }
+                    if let t = Double(tipsText)  { record.tips  = t }
                     record.date = selectedDate
                     onSave()
                     presentationMode.wrappedValue.dismiss()
@@ -437,9 +515,12 @@ struct EditRecordView: View {
         .onAppear {
             hoursText = String(record.hours)
             tipsText  = String(format: "%.2f", record.tips)
+            // Optionally focus the first field on appear:
+            focusedField = .hours
         }
     }
 }
+
 
 // MARK: - UserDefaults Extension
 
