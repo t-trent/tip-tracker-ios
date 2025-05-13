@@ -11,10 +11,10 @@ Tip Tracker is a SwiftUI-based iOS application to help users track their work ho
   View charts and summary metrics that display overall, daily, weekly, and monthly earnings trends.
 
 - **Calendar View:**  
-  A calendar marks days with records with a dot. Tap a day to view aggregated metrics and quickly edit records.
+  A calendar marks days with records with a dot. Tap a day to view metrics and quickly edit records.
 
 - **Settings:**  
-  Customize settings such as your hourly wage, currency & locale, and other preferences.
+  Customize settings such as your hourly wage & week start day.
 
 ## Requirements
 
@@ -35,25 +35,23 @@ Tip Tracker is a SwiftUI-based iOS application to help users track their work ho
 - **Home (Records):**  
   Add, edit, or delete work records. Your records are saved locally using UserDefaults.
 
-  ![ContentView](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/content-dark.png)
+  ![Home](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Home.png)
+  ![Add Record](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Add%20Record.png)
+  ![Edit Record](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Edit%20Record.png)
 
 - **Trends:**  
   Analyze your earnings with various chart views and summary statistics.  
   Select different groupings (Week, Month, Year) and swipe through time increments to see different trends. 
   
-  ![TrendsView](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/trends-dark.png)
+  ![Trends Month](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Trends%20Month.png)
 
 - **Calendar:**  
   Browse a full-screen calendar that highlights days with recorded entries.  
   Tap a day to view metrics and tap the metrics view to edit a record.
   
-  ![CalendarView](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/calendar-dark.png)
+  ![Calendar](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Calendar.png)
 
 - **Settings:**  
   Adjust your hourly wage and other settings to personalize the app's calculations and appearance.
   
-  ![SettingsView](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/settings-dark.png)
-
-## Architecture
-
-Tip Tracker uses a shared `RecordsStore` to manage work records across the app. This ensures that changes in one view (e.g., adding a record in the Home tab) are immediately reflected in the Trends, Calendar, and Settings views.
+  ![Settings](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Settings.png)
