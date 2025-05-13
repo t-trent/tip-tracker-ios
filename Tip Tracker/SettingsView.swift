@@ -40,7 +40,10 @@ struct SettingsView: View {
                     NavigationLink(destination: ExportDataView()) {
                         Label("Export/Backup Data", systemImage: "square.and.arrow.up")
                     }
-                    NavigationLink(destination: ResetDataView()) {
+                    NavigationLink(destination: GenerateDataView(recordsStore: recordsStore)) {
+                        Label("Manage Data", systemImage: "folder")
+                    }
+                    NavigationLink(destination: ResetDataView(recordsStore: recordsStore)) {
                         Label("Reset Data", systemImage: "trash")
                     }
                     NavigationLink(destination: PrivacyTermsView()) {
@@ -362,6 +365,8 @@ struct ExportDataView: View {
 
 // MARK: - Reset Data
 struct ResetDataView: View {
+    @ObservedObject var recordsStore: RecordsStore
+    @Environment(\.dismiss) private var dismiss
     @State private var showConfirm = false
 
     var body: some View {
@@ -392,10 +397,14 @@ struct ResetDataView: View {
         .navigationTitle("Reset Data")
         .navigationBarTitleDisplayMode(.inline)
         .padding(.top, 40)
-        .dynamicTypeSize(...DynamicTypeSize.large)
+        .dynamicTypeSize(.large)
         .alert("Are you sure?", isPresented: $showConfirm) {
             Button("Delete", role: .destructive) {
-                // TODO: perform delete
+                // Clear the store and persist
+                recordsStore.records.removeAll()
+                UserDefaults.standard.saveRecords(recordsStore.records)
+                // Go back to Settings
+                dismiss()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -423,6 +432,141 @@ struct PrivacyTermsView: View {
         .navigationTitle("Privacy & Terms")
         .navigationBarTitleDisplayMode(.inline)
         .dynamicTypeSize(...DynamicTypeSize.large)
+    }
+}
+
+// MARK: - Generate Data
+struct GenerateDataView: View {
+    @ObservedObject var recordsStore: RecordsStore
+    @State private var fromDate: Date = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+    @State private var toDate: Date = Date()
+    @State private var probability: Double = 0.5
+    @State private var hoursMin: Double = 2.0
+    @State private var hoursMax: Double = 8.0
+    @State private var tipsMin: Double = 0.0
+    @State private var tipsMax: Double = 20.0
+    @State private var isGenerating = false
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+
+    private let step: Double = 0.25
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                // Date Range Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Date Range")
+                        .font(.headline)
+                    DatePicker("From", selection: $fromDate, displayedComponents: .date)
+                    DatePicker("To", selection: $toDate, displayedComponents: .date)
+                }
+                
+                // Probability Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Probability of Entry")
+                        .font(.headline)
+                    Slider(value: $probability, in: 0...1)
+                    Text(String(format: "Chance per day: %.0f%%", probability * 100))
+                }
+                
+                // Hours Range Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Hours Range")
+                        .font(.headline)
+                    HStack {
+                        Text("Min:")
+                        Slider(value: $hoursMin, in: 2...16, step: step)
+                        Text(String(format: "%.2f", hoursMin))
+                    }
+                    HStack {
+                        Text("Max:")
+                        Slider(value: $hoursMax, in: hoursMin...16, step: step)
+                        Text(String(format: "%.2f", hoursMax))
+                    }
+                }
+                
+                // Tip Rate Range Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Tip Rate Range ($/hr)")
+                        .font(.headline)
+                    HStack {
+                        Text("Min:")
+                        Slider(value: $tipsMin, in: 0...100, step: 0.01)
+                        Text(String(format: "$%.2f", tipsMin))
+                    }
+                    HStack {
+                        Text("Max:")
+                        Slider(value: $tipsMax, in: tipsMin...100, step: 0.01)
+                        Text(String(format: "$%.2f", tipsMax))
+                    }
+                }
+                
+                // Generate Button
+                Button("Generate") {
+                    startGeneration()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(!recordsStore.records.isEmpty || isGenerating)
+                
+                if !recordsStore.records.isEmpty {
+                    Text("Please clear all existing records before generating data.")
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                
+                Spacer(minLength: 40)
+            }
+            .padding(.horizontal, 24)
+        }
+        .navigationTitle("Generate Data")
+        .navigationBarTitleDisplayMode(.inline)
+        .disabled(!recordsStore.records.isEmpty)
+        .overlay {
+            if isGenerating {
+                ProgressView("Generating…")
+                    .padding()
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(.systemBackground)))
+            }
+        }
+        .alert("Generate Data", isPresented: $showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private func startGeneration() {
+        isGenerating = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            var newRecords: [WorkRecord] = []
+            let calendar = Calendar.current
+            var date = calendar.startOfDay(for: fromDate)
+            let end = calendar.startOfDay(for: toDate)
+            while date <= end {
+                if Double.random(in: 0...1) <= probability {
+                    let hours = Double.random(in: hoursMin...hoursMax)
+                    let roundedHours = (hours / step).rounded() * step
+                    let tipRate = Double.random(in: tipsMin...tipsMax)
+                    let tips = roundedHours * tipRate
+                    newRecords.append(WorkRecord(hours: roundedHours, tips: tips, date: date))
+                }
+                guard let next = calendar.date(byAdding: .day, value: 1, to: date) else { break }
+                date = next
+            }
+            DispatchQueue.main.async {
+                if newRecords.isEmpty {
+                    alertMessage = "No records generated. Adjust your probability or date range."
+                } else {
+                    recordsStore.records = newRecords
+                    UserDefaults.standard.saveRecords(newRecords)
+                    alertMessage = "Successfully generated \(newRecords.count) records."
+                }
+                isGenerating = false
+                showAlert = true
+            }
+        }
     }
 }
 
