@@ -299,8 +299,8 @@ struct TrendsView: View {
                         // Metric and Grouping Dropdown
                         HStack(spacing: 4) {
                             Text("Viewing")
-                                .font(.title2)
-                                .fontWeight(.bold)
+                                .font(.title3)
+                                .bold()
                             Menu {
                                 ForEach(Metric.allCases, id: \.self) { metric in
                                     Button(action: { selectedMetric = metric }) {
@@ -310,8 +310,8 @@ struct TrendsView: View {
                             } label: {
                                 HStack(spacing: 2) {
                                     Text(selectedMetric.displayName)
-                                        .font(.title2)
-                                        .fontWeight(.bold)
+                                        .font(.title3)
+                                        .bold()
                                     Image(systemName: "chevron.down")
                                 }
                                 .padding(4)
@@ -320,8 +320,8 @@ struct TrendsView: View {
                             }
                             .fixedSize()
                             Text("by")
-                                .font(.title2)
-                                .fontWeight(.bold)
+                                .font(.title3)
+                                .bold()
                             Menu {
                                 ForEach(Grouping.allCases, id: \.self) { grouping in
                                     Button(action: { selectedGrouping = grouping }) {
@@ -331,8 +331,8 @@ struct TrendsView: View {
                             } label: {
                                 HStack(spacing: 2) {
                                     Text(selectedGrouping.displayName)
-                                        .font(.title2)
-                                        .fontWeight(.bold)
+                                        .font(.title3)
+                                        .bold()
                                     Image(systemName: "chevron.down")
                                 }
                                 .padding(4)
@@ -397,11 +397,13 @@ struct TrendsView: View {
                                         .foregroundColor(.secondary)
                                     if selectedMetric == .tips || selectedMetric == .totalEarnings {
                                         Text(formatCurrency(currentPageTotal))
-                                            .font(.headline)
+                                            .font(.title3)
+                                            .bold()
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     } else {
                                         Text(String(format: "%.2f", currentPageTotal))
-                                            .font(.headline)
+                                            .font(.title3)
+                                            .bold()
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                 }
