@@ -44,6 +44,7 @@ Tip Tracker is a SwiftUI-based iOS application to help users track their work ho
   Select different groupings (Week, Month, Year) and swipe through time increments to see different trends. 
   
   ![Trends Month](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Trends%20Month.png)
+  ![Trends Year](https://github.com/t-trent/tip-tracker-ios/blob/main/Tip%20Tracker/Preview%20Content/Screenshots/Trends%20Year.png)
 
 - **Calendar:**  
   Browse a full-screen calendar that highlights days with recorded entries.  
