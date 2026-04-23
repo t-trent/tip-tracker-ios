@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 import UIKit
 
 // MARK: - CalendarView
@@ -9,102 +8,83 @@ struct CalendarView: View {
     @Binding var hourlyWage: Double
 
     @State private var selectedDate: Date? = nil
-    @State private var isShowingEditSheet: Bool = false
-    @State private var recordToEdit: WorkRecord? = nil
+    @State private var isShowingEditSheet = false
 
     var body: some View {
         NavigationView {
             VStack {
                 ScrollView(.vertical, showsIndicators: true) {
-                    CalendarUIKitView(selectedDate: $selectedDate,
-                                      records: recordsStore.records)
-                    .id(recordsStore.records)   
-                    .padding()
+                    // Removed .id(recordsStore.records) — decoration updates are handled
+                    // incrementally inside CalendarUIKitView.updateUIView instead.
+                    CalendarUIKitView(selectedDate: $selectedDate, records: recordsStore.records)
+                        .padding()
                 }
-                
+
                 Divider()
-                
+
                 if let date = selectedDate {
                     let dayRecords = recordsStore.records.filter {
                         Calendar.current.isDate($0.date, inSameDayAs: date)
                     }
-                    
                     if !dayRecords.isEmpty {
                         ScrollView(.vertical, showsIndicators: true) {
-                            VStack(spacing: 16) {
-                                DayMetricsView(dayRecords: dayRecords,
-                                               hourlyWage: hourlyWage,
-                                               date: date,
-                                               onEdit: {
-                                    isShowingEditSheet = true
-                                })
-                            }
-                            .padding(.bottom)
+                            DayMetricsView(dayRecords: dayRecords,
+                                           hourlyWage: hourlyWage,
+                                           date: date,
+                                           onEdit: { isShowingEditSheet = true })
+                                .padding(.bottom)
                         }
                         .frame(maxHeight: 160)
                     } else {
-                        Text("No records for \(formattedDate(date))")
+                        Text("No records for \(Formatters.fullDate.string(from: date))")
                             .padding()
                             .padding(.vertical)
                     }
                 }
-                
+
                 Spacer()
-            }
-            .onChange(of: selectedDate) {
-                if let newDate = selectedDate {
-                    recordToEdit = recordsStore.records.first(where: {
-                        Calendar.current.isDate($0.date, inSameDayAs: newDate)
-                    })
-                } else {
-                    recordToEdit = nil
-                }
             }
             .navigationTitle("Calendar")
             .sheet(isPresented: $isShowingEditSheet) {
-                if let selectedDate = selectedDate,
-                   let record = recordsStore.records.first(where: {
-                       Calendar.current.isDate($0.date, inSameDayAs: selectedDate)
-                   }),
-                   let index = recordsStore.records.firstIndex(where: { $0.id == record.id }) {
-                    NavigationView {
-                        EditRecordView(record: $recordsStore.records[index],
-                                       onDelete: {
-                            recordsStore.records.remove(at: index)
-                            UserDefaults.standard.saveRecords(recordsStore.records)
-                            isShowingEditSheet = false
-                        },
-                                       onSave: {
-                            UserDefaults.standard.saveRecords(recordsStore.records)
-                            isShowingEditSheet = false
-                        })
-                        .navigationTitle("Edit Record")
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Cancel") {
-                                    isShowingEditSheet = false
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Text("No record selected")
-                }
+                editSheet
             }
-
         }
         .dynamicTypeSize(.xSmall ... .large)
     }
 
-    // A helper to format the selected date.
-    func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .full
-        return formatter.string(from: date)
+    @ViewBuilder
+    private var editSheet: some View {
+        if let date = selectedDate,
+           let record = recordsStore.records.first(where: {
+               Calendar.current.isDate($0.date, inSameDayAs: date)
+           }),
+           let index = recordsStore.records.firstIndex(where: { $0.id == record.id }) {
+            NavigationView {
+                EditRecordView(
+                    record: $recordsStore.records[index],
+                    onDelete: {
+                        recordsStore.delete(record)
+                        isShowingEditSheet = false
+                    },
+                    onSave: {
+                        recordsStore.save()
+                        isShowingEditSheet = false
+                    }
+                )
+                .navigationTitle("Edit Record")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { isShowingEditSheet = false }
+                    }
+                }
+            }
+        } else {
+            Text("No record selected")
+        }
     }
 }
 
-// MARK: - CalendarUIKitView (SwiftUI wrapper for UICalendarView)
+// MARK: - CalendarUIKitView
 
 struct CalendarUIKitView: UIViewRepresentable {
     @Binding var selectedDate: Date?
@@ -117,75 +97,78 @@ struct CalendarUIKitView: UIViewRepresentable {
     func makeUIView(context: Context) -> UICalendarView {
         let calendarView = UICalendarView()
         calendarView.calendar = Calendar.current
-        calendarView.locale = Locale.current
+        calendarView.locale   = Locale.current
 
-        // Use a single-date selection behavior.
         let selection = UICalendarSelectionSingleDate(delegate: context.coordinator)
         calendarView.selectionBehavior = selection
-
-        // Set the delegate to provide decorations.
         calendarView.delegate = context.coordinator
+
+        // Seed the coordinator's date set so the first updateUIView diff is correct
+        let cal = Calendar.current
+        context.coordinator.decoratedDates = Set(records.map {
+            cal.dateComponents([.year, .month, .day], from: $0.date)
+        })
 
         return calendarView
     }
 
     func updateUIView(_ uiView: UICalendarView, context: Context) {
-        guard let selection = uiView.selectionBehavior as? UICalendarSelectionSingleDate else {
-            return
+        // Keep coordinator's parent reference current for delegate callbacks
+        context.coordinator.parent = self
+
+        // Incrementally reload only dates whose decoration status changed
+        let cal = Calendar.current
+        let newDates = Set(records.map { cal.dateComponents([.year, .month, .day], from: $0.date) })
+        let oldDates = context.coordinator.decoratedDates
+        let changed  = Array(newDates.symmetricDifference(oldDates))
+        context.coordinator.decoratedDates = newDates
+
+        if !changed.isEmpty {
+            uiView.reloadDecorations(forDateComponents: changed, animated: false)
         }
 
+        // Sync the selected date highlight
+        guard let selection = uiView.selectionBehavior as? UICalendarSelectionSingleDate else { return }
         if let date = selectedDate {
-            // Convert the date to DateComponents (year, month, and day).
-            let newComponents = Calendar.current.dateComponents([.year, .month, .day], from: date)
-
-            // Check the currently selected date in the calendar view.
-            if let currentComponents = selection.selectedDate,
-               let currentDate = Calendar.current.date(from: currentComponents) {
-                // Compare the current date and the new date.
-                if !Calendar.current.isDate(currentDate, inSameDayAs: date) {
-                    selection.setSelected(newComponents, animated: true)
-                }
-            } else {
-                // No selection exists yet.
-                selection.setSelected(newComponents, animated: true)
+            let newComps = cal.dateComponents([.year, .month, .day], from: date)
+            if let currentComps = selection.selectedDate,
+               let currentDate = cal.date(from: currentComps),
+               cal.isDate(currentDate, inSameDayAs: date) {
+                return // already correct — no-op
             }
+            selection.setSelected(newComps, animated: true)
         } else {
-            // Clear the selection if selectedDate is nil.
             selection.setSelected(nil, animated: true)
         }
     }
 
-    // Coordinator to handle selection and decoration.
+    // MARK: - Coordinator
+
     class Coordinator: NSObject, UICalendarViewDelegate, UICalendarSelectionSingleDateDelegate {
         var parent: CalendarUIKitView
+        var decoratedDates: Set<DateComponents> = []
 
         init(_ parent: CalendarUIKitView) {
             self.parent = parent
         }
 
-        // MARK: - UICalendarSelectionSingleDateDelegate
-
-        func dateSelection(_ selection: UICalendarSelectionSingleDate, didSelectDate dateComponents: DateComponents?) {
-            guard let dateComponents = dateComponents,
-                  let tappedDate = Calendar.current.date(from: dateComponents) else {
+        func dateSelection(_ selection: UICalendarSelectionSingleDate,
+                           didSelectDate dateComponents: DateComponents?) {
+            guard let comps = dateComponents,
+                  let date = Calendar.current.date(from: comps) else {
                 parent.selectedDate = nil
                 return
             }
-            // Always update the selected date (do not deselect if already selected)
-            parent.selectedDate = tappedDate
+            parent.selectedDate = date
         }
 
-        // MARK: - UICalendarViewDelegate
-
-        func calendarView(_ calendarView: UICalendarView, decorationFor dateComponents: DateComponents) -> UICalendarView.Decoration? {
-            // Convert the date components to a Date.
+        func calendarView(_ calendarView: UICalendarView,
+                          decorationFor dateComponents: DateComponents) -> UICalendarView.Decoration? {
             guard let date = Calendar.current.date(from: dateComponents) else { return nil }
-
-            // If there is at least one record for this day, return a dot decoration.
-            if parent.records.contains(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) {
-                return .default(color: .systemBlue, size: .small)
+            let hasRecord = parent.records.contains {
+                Calendar.current.isDate($0.date, inSameDayAs: date)
             }
-            return nil
+            return hasRecord ? .default(color: .systemBlue, size: .small) : nil
         }
     }
 }
@@ -196,37 +179,15 @@ struct DayMetricsView: View {
     let dayRecords: [WorkRecord]
     let hourlyWage: Double
     let date: Date
-
-    // Optional closure to be called when tapping the edit button.
     var onEdit: (() -> Void)? = nil
-
-    // Computed properties for the day’s metrics.
-    private var totalHours: Double {
-        dayRecords.reduce(0) { $0 + $1.hours }
-    }
-
-    private var totalTips: Double {
-        dayRecords.reduce(0) { $0 + $1.tips }
-    }
-
-    private var totalEarnings: Double {
-        (totalHours * hourlyWage) + totalTips
-    }
-
-    private var hourlyRate: Double {
-        totalHours > 0 ? totalEarnings / totalHours : 0
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Header with formatted date and an edit button (if an action is provided).
             HStack {
-                Text(formattedDate(date))
+                Text(Formatters.fullDate.string(from: date))
                     .font(.headline)
-
                 Spacer()
-
-                if let onEdit = onEdit {
+                if let onEdit {
                     Button(action: onEdit) {
                         HStack(spacing: 4) {
                             Image(systemName: "pencil")
@@ -236,76 +197,24 @@ struct DayMetricsView: View {
                 }
             }
 
-            // First row: Total Hours and Total Earnings.
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Total Hours")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%.2f", totalHours))
-                        .font(.title3)
-                        .bold()
-                }
-                Spacer()
-                VStack(alignment: .trailing) {
-                    Text("Total Earnings")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    Text(formatCurrency(totalEarnings))
-                        .font(.title3)
-                        .bold()
-                }
-            }
-
-            // Second row: Total Tips and Hourly Rate.
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Total Tips")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    Text(formatCurrency(totalTips))
-                        .font(.title3)
-                        .bold()
-                }
-                Spacer()
-                VStack(alignment: .trailing) {
-                    Text("Hourly Rate")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    Text("\(formatCurrency(hourlyRate))/hr")
-                        .font(.title3)
-                        .bold()
-                }
-            }
+            MetricGrid(
+                topLeading:    ("Total Hours",    String(format: "%.2f", dayRecords.totalHours)),
+                topTrailing:   ("Total Earnings", formatCurrency(dayRecords.totalEarnings(wage: hourlyWage))),
+                bottomLeading: ("Total Tips",     formatCurrency(dayRecords.totalTips)),
+                bottomTrailing:("Hourly Rate",    formatCurrency(dayRecords.hourlyRate(wage: hourlyWage)) + "/hr"),
+                valueFont: .title3
+            )
         }
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(10)
         .padding(.horizontal)
     }
-
-    // MARK: - Helpers
-
-    private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .full
-        return formatter.string(from: date)
-    }
-
-    private func formatCurrency(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "$\(amount)"
-    }
 }
 
 // MARK: - Preview
 
 #Preview("CalendarView with Dummy Data") {
-    // Create a RecordsStore with dummy data.
-    let store = RecordsStore(records: WorkRecord.dummyData500)
+    let store = RecordsStore(records: WorkRecord.dummyData)
     CalendarView(recordsStore: store, hourlyWage: .constant(17.40))
-        .preferredColorScheme(.light)
 }

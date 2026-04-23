@@ -1,22 +1,36 @@
 import SwiftUI
-import SwiftData
 
-class RecordsStore: ObservableObject {
+// MARK: - RecordsStore
+
+final class RecordsStore: ObservableObject {
     @Published var records: [WorkRecord]
-    
+
     init(records: [WorkRecord] = []) {
         self.records = records
     }
+
+    func add(_ record: WorkRecord) {
+        records.append(record)
+        save()
+    }
+
+    func delete(_ record: WorkRecord) {
+        records.removeAll { $0.id == record.id }
+        save()
+    }
+
+    func save() {
+        UserDefaults.standard.saveRecords(records)
+    }
 }
+
+// MARK: - Root View
 
 struct MainAppView: View {
     @State private var store = RecordsStore(records: UserDefaults.standard.loadRecords())
     @AppStorage("hourlyWage") private var hourlyWage: Double = 0.0
-
-    // 1) Track whether we've ever shown the intro
     @AppStorage("hasSeenIntro") private var hasSeenIntro: Bool = false
-    // 2) Control the sheet presentation
-    @State private var showingIntro: Bool = false
+    @State private var showingIntro = false
 
     var body: some View {
         TabView {
@@ -33,9 +47,7 @@ struct MainAppView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .onAppear {
-            if !hasSeenIntro {
-                showingIntro = true
-            }
+            if !hasSeenIntro { showingIntro = true }
         }
         .sheet(isPresented: $showingIntro) {
             IntroSplashView()
@@ -43,20 +55,24 @@ struct MainAppView: View {
     }
 }
 
+// MARK: - App Entry Point
+
 @main
 struct MyTipTrackerApp: App {
-    // Read the user's theme preference
     @AppStorage("appTheme") private var appThemeRaw: String = ThemeSelectionView.Theme.system.rawValue
+
     var body: some Scene {
         WindowGroup {
             MainAppView()
-                .preferredColorScheme({ () -> ColorScheme? in
-                    switch ThemeSelectionView.Theme(rawValue: appThemeRaw) ?? .system {
-                    case .system: return nil
-                    case .light: return .light
-                    case .dark: return .dark
-                    }
-                }())
+                .preferredColorScheme(colorScheme)
+        }
+    }
+
+    private var colorScheme: ColorScheme? {
+        switch ThemeSelectionView.Theme(rawValue: appThemeRaw) ?? .system {
+        case .system: return nil
+        case .light:  return .light
+        case .dark:   return .dark
         }
     }
 }

@@ -37,8 +37,11 @@ struct SettingsView: View {
 
                 // Data & Privacy Section
                 Section(header: Text("Data & Privacy")) {
-                    NavigationLink(destination: ExportDataView()) {
-                        Label("Export/Backup Data", systemImage: "square.and.arrow.up")
+                    NavigationLink(destination: ExportImportView(recordsStore: recordsStore)) {
+                        Label("Export & Import", systemImage: "arrow.up.arrow.down")
+                    }
+                    NavigationLink(destination: DataHistoryView(recordsStore: recordsStore)) {
+                        Label("Data History", systemImage: "clock.arrow.circlepath")
                     }
                     NavigationLink(destination: GenerateDataView(recordsStore: recordsStore)) {
                         Label("Manage Data", systemImage: "folder")
@@ -330,39 +333,6 @@ struct ReminderSettingsView: View {
     }
 }
 
-// MARK: - Export Data
-struct ExportDataView: View {
-    var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "doc.on.doc")
-                .font(.system(size: 60))
-                .foregroundColor(.accentColor)
-
-            Text("Export Your Data")
-                .font(.title2).bold()
-
-            Text("Generate a spreadsheet (.csv) of all your work records to share or backup.")
-                .font(.body)
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 24)
-
-            Button("Export to CSV") {
-                // TODO: export logic
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal, 24)
-
-            Spacer()
-        }
-        .navigationTitle("Export Data")
-        .navigationBarTitleDisplayMode(.inline)
-        .padding(.top, 40)
-        .dynamicTypeSize(...DynamicTypeSize.large)
-    }
-}
-
 // MARK: - Reset Data
 struct ResetDataView: View {
     @ObservedObject var recordsStore: RecordsStore
@@ -400,10 +370,9 @@ struct ResetDataView: View {
         .dynamicTypeSize(.large)
         .alert("Are you sure?", isPresented: $showConfirm) {
             Button("Delete", role: .destructive) {
-                // Clear the store and persist
+                try? DataSnapshotManager.shared.saveSnapshot(records: recordsStore.records, operation: .beforeReset)
                 recordsStore.records.removeAll()
-                UserDefaults.standard.saveRecords(recordsStore.records)
-                // Go back to Settings
+                recordsStore.save()
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
@@ -560,7 +529,7 @@ struct GenerateDataView: View {
                     alertMessage = "No records generated. Adjust your probability or date range."
                 } else {
                     recordsStore.records = newRecords
-                    UserDefaults.standard.saveRecords(newRecords)
+                    recordsStore.save()
                     alertMessage = "Successfully generated \(newRecords.count) records."
                 }
                 isGenerating = false

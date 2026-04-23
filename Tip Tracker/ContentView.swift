@@ -3,378 +3,177 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var recordsStore: RecordsStore
     @Binding var hourlyWage: Double
+    @AppStorage("firstWeekday") private var firstWeekday: Int = 2
     @State private var isPresentingSheet = false
-    
+
     var body: some View {
-            NavigationView {
-                Group {
-                    if recordsStore.records.isEmpty {
-                        // No‑records placeholder
-                        VStack(spacing: 16) {
-                            Image(systemName: "tray")
-                                .font(.largeTitle)
-                                .foregroundColor(.secondary)
-                            Text("No records yet")
-                                .font(.title2)
-                                .bold()
-                            Text("Tap the “+” button above to add your first work record.")
-                                .multilineTextAlignment(.center)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding()
-                    } else {
-                        // Your existing list
-                        List {
-                            ForEach(sortedWeekStarts, id: \.self) { weekStart in
-                                sectionView(for: weekStart)
-                            }
-                        }
-                    }
+        NavigationView {
+            Group {
+                if recordsStore.records.isEmpty {
+                    emptyState
+                } else {
+                    recordsList
                 }
-                .navigationTitle("Tip Tracker")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: { isPresentingSheet = true }) {
-                            Image(systemName: "plus")
-                        }
-                    }
-                }
-                .sheet(isPresented: $isPresentingSheet) {
-                    AddRecordView { newRecord in
-                        recordsStore.records.append(newRecord)
-                        UserDefaults.standard.saveRecords(recordsStore.records)
-                        isPresentingSheet = false
+            }
+            .navigationTitle("Tip Tracker")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { isPresentingSheet = true } label: {
+                        Image(systemName: "plus")
                     }
                 }
             }
-            .dynamicTypeSize(.xSmall ... .large)
+            .sheet(isPresented: $isPresentingSheet) {
+                AddRecordView { newRecord in
+                    recordsStore.add(newRecord)
+                    isPresentingSheet = false
+                }
+            }
         }
-    
-    // MARK: - Helper Computed Properties
-    
-    /// Groups records by week, using Monday as the first day of the week.
-    private var groupedRecords: [Date: [WorkRecord]] {
-        var calendar = Calendar.current
-        calendar.firstWeekday = 2 // Monday
-        
-        return Dictionary(grouping: recordsStore.records) { record in
-            let interval = calendar.dateInterval(of: .weekOfYear, for: record.date)
-            return interval?.start ?? record.date
+        .dynamicTypeSize(.xSmall ... .large)
+    }
+
+    // MARK: - Subviews
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "tray")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("No records yet")
+                .font(.title2).bold()
+            Text("Tap the \"+\" button above to add your first work record.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+    }
+
+    private var recordsList: some View {
+        List {
+            ForEach(sortedWeekStarts, id: \.self) { weekStart in
+                sectionView(for: weekStart)
+            }
         }
     }
-    
-    /// Sorted week start dates (most recent first)
+
+    // MARK: - Grouping
+
+    private var groupedRecords: [Date: [WorkRecord]] {
+        var calendar = Calendar.current
+        calendar.firstWeekday = firstWeekday
+        return Dictionary(grouping: recordsStore.records) { record in
+            calendar.dateInterval(of: .weekOfYear, for: record.date)?.start ?? record.date
+        }
+    }
+
     private var sortedWeekStarts: [Date] {
         groupedRecords.keys.sorted(by: >)
     }
-    
-    // MARK: - Section and Row Builders
-    
-    /// Returns a section view for a given week start date.
+
+    // MARK: - Section & Row Builders
+
     private func sectionView(for weekStart: Date) -> some View {
-        let recordsForWeek = recordsForWeek(for: weekStart)
+        let weekRecords = recordsForWeek(weekStart)
         return Section(
             header: HeaderSummaryView(
-                records: recordsForWeek,
+                records: weekRecords,
                 hourlyWage: hourlyWage,
-                headerText: "Week of \(formattedWeekDate(weekStart))"
+                headerText: "Week of \(Formatters.shortDate.string(from: weekStart))"
             )
         ) {
-            ForEach(recordsForWeek) { record in
+            ForEach(weekRecords) { record in
                 recordRow(for: record)
             }
         }
     }
-    
-    /// Returns all records for a given week start date, sorted descending by date.
-    private func recordsForWeek(for weekStart: Date) -> [WorkRecord] {
+
+    private func recordsForWeek(_ weekStart: Date) -> [WorkRecord] {
         (groupedRecords[weekStart] ?? []).sorted { $0.date > $1.date }
     }
-    
-    /// Creates a row view for a single record.
+
+    @ViewBuilder
     private func recordRow(for record: WorkRecord) -> some View {
         if let index = recordsStore.records.firstIndex(where: { $0.id == record.id }) {
-            return AnyView(
-                NavigationLink(
-                    destination: EditRecordView(
-                        record: $recordsStore.records[index],
-                        onDelete: { deleteRecord(record) },
-                        onSave: { UserDefaults.standard.saveRecords(recordsStore.records) }
-                    )
-                ) {
-                    // Replace the manual record summary with ItemSummaryView.
-                    ItemSummaryView(
-                        records: [record],
-                        hourlyWage: hourlyWage,
-                        itemText: formattedDate(record.date)
-                    )
-                }
-            )
-        } else {
-            return AnyView(EmptyView())
+            NavigationLink(destination: EditRecordView(
+                record: $recordsStore.records[index],
+                onDelete: { recordsStore.delete(record) },
+                onSave: { recordsStore.save() }
+            )) {
+                ItemSummaryView(
+                    records: [record],
+                    hourlyWage: hourlyWage,
+                    itemText: Formatters.recordDate.string(from: record.date)
+                )
+            }
         }
     }
-    
-    // MARK: - Formatting and Calculations
-    
-    /// Returns a formatted string for total earnings (hours * hourlyWage + tips).
-    private func totalEarningsString(for record: WorkRecord) -> String {
-        let total = record.hours * hourlyWage + record.tips
-        return formatCurrency(total)
-    }
-    
-    /// Formats the hours value using a NumberFormatter.
-    private func hoursText(for hours: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.minimumFractionDigits = 1
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: hours as NSNumber) ?? String(hours)
-    }
-    
-    /// Returns a formatted hourly rate string.
-    private func hourlyRateString(for record: WorkRecord) -> String {
-        let total = record.hours * hourlyWage + record.tips
-        guard record.hours > 0 else { return "$0.00/hr" }
-        let rate = total / record.hours
-        return formatCurrency(rate) + "/hr"
-    }
-    
-    /// Formats an individual record's date.
-    private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMM d, yyyy"
-        return formatter.string(from: date)
-    }
-    
-    /// Formats the week header date.
-    private func formattedWeekDate(_ date: Date, format: String = "MMM d, yyyy") -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = format
-        return formatter.string(from: date)
-    }
-    
-    /// Deletes a record and saves the updated list.
-    private func deleteRecord(_ record: WorkRecord) {
-        if let index = recordsStore.records.firstIndex(where: { $0.id == record.id }) {
-            recordsStore.records.remove(at: index)
-            UserDefaults.standard.saveRecords(recordsStore.records)
-        }
-    }
-    
-    // MARK: - HeaderSummaryView
-    
-    /// A header view that shows the headerText and a tappable arrow to expand/collapse the weekly summary.
+
+    // MARK: - Week Header View
+
     struct HeaderSummaryView: View {
         let records: [WorkRecord]
         let hourlyWage: Double
         let headerText: String
-        
-        @State private var isExpanded: Bool = false
-        
-        private var totalHours: Double {
-            records.reduce(0) { $0 + $1.hours }
-        }
-        
-        private var totalTips: Double {
-            records.reduce(0) { $0 + $1.tips }
-        }
-        
-        private var totalEarnings: Double {
-            (totalHours * hourlyWage) + totalTips
-        }
-        
-        private var hourlyRate: Double {
-            totalHours == 0 ? 0 : totalEarnings / totalHours
-        }
-        
+        @State private var isExpanded = false
+
         var body: some View {
-            DisclosureGroup(
-                isExpanded: $isExpanded,
-                content: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text("Hours")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Text(String(format: "%.2f", totalHours))
-                                    .font(.headline)
-                                    .bold()
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing) {
-                                Text("Earnings")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Text(formatCurrency(totalEarnings))
-                                    .font(.headline)
-                                    .bold()
-                            }
-                        }
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text("Tips")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Text(formatCurrency(totalTips))
-                                    .font(.headline)
-                                    .bold()
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing) {
-                                Text("Hourly Rate")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Text(formatCurrency(hourlyRate) + "/hr")
-                                    .font(.headline)
-                                    .bold()
-                            }
-                        }
-                    }
-                    .padding(.top, 8)
-                },
-                label: {
-                    HStack {
-                        Text(headerText)
-                            .font(.title3)
-                            .bold()
-                    }
+            DisclosureGroup(isExpanded: $isExpanded) {
+                MetricGrid(
+                    topLeading:    ("Hours",       String(format: "%.2f", records.totalHours)),
+                    topTrailing:   ("Earnings",    formatCurrency(records.totalEarnings(wage: hourlyWage))),
+                    bottomLeading: ("Tips",        formatCurrency(records.totalTips)),
+                    bottomTrailing:("Hourly Rate", formatCurrency(records.hourlyRate(wage: hourlyWage)) + "/hr"),
+                    valueFont: .headline
+                )
+                .padding(.top, 8)
+            } label: {
+                Text(headerText)
+                    .font(.title3).bold()
                     .padding(.vertical, 4)
-                }
-            )
+            }
         }
     }
-    
+
+    // MARK: - Record Row View
+
     struct ItemSummaryView: View {
         let records: [WorkRecord]
         let hourlyWage: Double
         let itemText: String
-        
-        private var totalHours: Double {
-            records.reduce(0) { $0 + $1.hours }
-        }
-        
-        private var totalTips: Double {
-            records.reduce(0) { $0 + $1.tips }
-        }
-        
-        private var totalEarnings: Double {
-            (totalHours * hourlyWage) + totalTips
-        }
-        
-        private var hourlyRate: Double {
-            totalHours == 0 ? 0 : totalEarnings / totalHours
-        }
-        
+
         var body: some View {
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(itemText)
-                    .font(.body)
+                    .font(.body).bold()
                     .padding(.bottom, 4)
-                    .bold()
-                
-                // First row: Hours and Earnings.
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("Hours")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Text(String(format: "%.2f", totalHours))
-                            .font(.body)
-                            .bold()
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        Text("Earnings")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Text(formatCurrency(totalEarnings))
-                            .font(.body)
-                            .bold()
-                    }
-                }
-                // Second row: Tips and Hourly Rate.
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("Tips")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Text(formatCurrency(totalTips))
-                            .font(.body)
-                            .bold()
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        Text("Hourly Rate")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Text(formatCurrency(hourlyRate) + "/hr")
-                            .font(.body)
-                            .bold()
-                    }
-                }
+                MetricGrid(
+                    topLeading:    ("Hours",       String(format: "%.2f", records.totalHours)),
+                    topTrailing:   ("Earnings",    formatCurrency(records.totalEarnings(wage: hourlyWage))),
+                    bottomLeading: ("Tips",        formatCurrency(records.totalTips)),
+                    bottomTrailing:("Hourly Rate", formatCurrency(records.hourlyRate(wage: hourlyWage)) + "/hr")
+                )
             }
         }
     }
 }
 
-// MARK: - Models and Other Views
-
-struct WorkRecord: Identifiable, Codable, Hashable {
-    var id = UUID()
-    var hours: Double
-    var tips: Double
-    var date: Date
-}
-
-extension WorkRecord: Equatable {
-    public static func == (lhs: WorkRecord, rhs: WorkRecord) -> Bool {
-        return lhs.date == rhs.date &&
-               lhs.hours == rhs.hours &&
-               lhs.tips == rhs.tips
-    }
-}
+// MARK: - Add Record View
 
 struct AddRecordView: View {
     @Environment(\.presentationMode) var presentationMode
     @State private var hoursWorked = ""
     @State private var tipsEarned = ""
     @State private var selectedDate = Date()
-    
+
     var onSave: (WorkRecord) -> Void
-    
+
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Work Details")) {
-                    // Hours Worked field with clear button
-                    ZStack(alignment: .trailing) {
-                        TextField("Hours Worked", text: $hoursWorked)
-                            .keyboardType(.decimalPad)
-                            .padding(.trailing, 30)   // space for the button
-                        if !hoursWorked.isEmpty {
-                            Button(action: { hoursWorked = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.trailing, 8)
-                        }
-                    }
-                    
-                    // Tips Earned field with clear button
-                    ZStack(alignment: .trailing) {
-                        TextField("Tips Earned", text: $tipsEarned)
-                            .keyboardType(.decimalPad)
-                            .padding(.trailing, 30)
-                        if !tipsEarned.isEmpty {
-                            Button(action: { tipsEarned = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.trailing, 8)
-                        }
-                    }
-                    
+                    clearableField("Hours Worked", text: $hoursWorked)
+                    clearableField("Tips Earned", text: $tipsEarned)
                     DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
                 }
             }
@@ -385,8 +184,7 @@ struct AddRecordView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        if let hours = Double(hoursWorked),
-                           let tips = Double(tipsEarned) {
+                        if let hours = Double(hoursWorked), let tips = Double(tipsEarned) {
                             onSave(WorkRecord(hours: hours, tips: tips, date: selectedDate))
                         }
                     }
@@ -394,7 +192,25 @@ struct AddRecordView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func clearableField(_ placeholder: String, text: Binding<String>) -> some View {
+        ZStack(alignment: .trailing) {
+            TextField(placeholder, text: text)
+                .keyboardType(.decimalPad)
+                .padding(.trailing, 30)
+            if !text.wrappedValue.isEmpty {
+                Button { text.wrappedValue = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.trailing, 8)
+            }
+        }
+    }
 }
+
+// MARK: - Edit Record View
 
 struct EditRecordView: View {
     @Environment(\.presentationMode) var presentationMode
@@ -402,20 +218,15 @@ struct EditRecordView: View {
     var onDelete: () -> Void
     var onSave: () -> Void
 
-    // 1) Track which field is focused
-    enum Field: Hashable {
-        case hours, tips
-    }
+    enum Field: Hashable { case hours, tips }
     @FocusState private var focusedField: Field?
 
-    @State private var hoursText: String = ""
-    @State private var tipsText: String = ""
+    @State private var hoursText = ""
+    @State private var tipsText = ""
     @State private var selectedDate: Date
     @State private var isShowingDeleteConfirmation = false
 
-    init(record: Binding<WorkRecord>,
-         onDelete: @escaping () -> Void,
-         onSave: @escaping () -> Void) {
+    init(record: Binding<WorkRecord>, onDelete: @escaping () -> Void, onSave: @escaping () -> Void) {
         _record = record
         self.onDelete = onDelete
         self.onSave = onSave
@@ -425,64 +236,14 @@ struct EditRecordView: View {
     var body: some View {
         Form {
             Section(header: Text("Edit Work Details")) {
+                labeledField("Hours", text: $hoursText, field: .hours)
+                labeledField("Tips Earned", text: $tipsText, field: .tips)
                 HStack {
-                    Text("Hours")
-                        .frame(width: 100, alignment: .leading)
-
-                    ZStack(alignment: .trailing) {
-                        TextField("", text: $hoursText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.leading)
-                            // 2) bind focus state
-                            .focused($focusedField, equals: .hours)
-                            .padding(.trailing, 30)
-
-                        if !hoursText.isEmpty {
-                            Button {
-                                hoursText = ""
-                                // 3) immediately re‑focus it
-                                focusedField = .hours
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.trailing, 8)
-                        }
-                    }
-                }
-
-                HStack {
-                    Text("Tips Earned")
-                        .frame(width: 100, alignment: .leading)
-
-                    ZStack(alignment: .trailing) {
-                        TextField("", text: $tipsText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.leading)
-                            .focused($focusedField, equals: .tips)
-                            .padding(.trailing, 30)
-
-                        if !tipsText.isEmpty {
-                            Button {
-                                tipsText = ""
-                                focusedField = .tips
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.trailing, 8)
-                        }
-                    }
-                }
-
-                HStack {
-                    Text("Date")
-                        .frame(width: 100, alignment: .leading)
+                    Text("Date").frame(width: 100, alignment: .leading)
                     DatePicker("", selection: $selectedDate, displayedComponents: .date)
                         .labelsHidden()
                 }
             }
-
             Section {
                 Button("Delete Record", role: .destructive) {
                     isShowingDeleteConfirmation = true
@@ -502,63 +263,50 @@ struct EditRecordView: View {
                 }
             }
         }
-        .alert("Are you sure you want to delete?",
-               isPresented: $isShowingDeleteConfirmation) {
+        .alert("Are you sure you want to delete?", isPresented: $isShowingDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 onDelete()
                 presentationMode.wrappedValue.dismiss()
             }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("This action cannot be undone.")
         }
         .onAppear {
             hoursText = String(record.hours)
             tipsText  = String(format: "%.2f", record.tips)
-            // Optionally focus the first field on appear:
             focusedField = .hours
         }
     }
-}
 
-
-// MARK: - UserDefaults Extension
-
-extension UserDefaults {
-    private static let recordsKey = "workRecords"
-    
-    func saveRecords(_ records: [WorkRecord]) {
-        if let encoded = try? JSONEncoder().encode(records) {
-            set(encoded, forKey: UserDefaults.recordsKey)
+    @ViewBuilder
+    private func labeledField(_ label: String, text: Binding<String>, field: Field) -> some View {
+        HStack {
+            Text(label).frame(width: 100, alignment: .leading)
+            ZStack(alignment: .trailing) {
+                TextField("", text: text)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.leading)
+                    .focused($focusedField, equals: field)
+                    .padding(.trailing, 30)
+                if !text.wrappedValue.isEmpty {
+                    Button {
+                        text.wrappedValue = ""
+                        focusedField = field
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.trailing, 8)
+                }
+            }
         }
     }
-    
-    func loadRecords() -> [WorkRecord] {
-        if let data = data(forKey: UserDefaults.recordsKey),
-           let decoded = try? JSONDecoder().decode([WorkRecord].self, from: data) {
-            return decoded
-        }
-        return []
-    }
-}
-
-// MARK: - Currency Formatter Helper
-
-private func formatCurrency(_ amount: Double) -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .currency
-    formatter.minimumFractionDigits = 2
-    formatter.maximumFractionDigits = 2
-    return formatter.string(from: NSNumber(value: amount)) ?? "$\(amount)"
 }
 
 // MARK: - Preview
 
-import Foundation
-
 #Preview("ContentView with Dummy Data") {
-    // Create a RecordsStore with the dummy data.
-    let store = RecordsStore(records: WorkRecord.dummyData500)
+    let store = RecordsStore(records: WorkRecord.dummyData)
     ContentView(recordsStore: store, hourlyWage: .constant(17.40))
-        .preferredColorScheme(.light)
 }
