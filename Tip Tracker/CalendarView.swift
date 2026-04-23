@@ -1,5 +1,12 @@
 import SwiftUI
-import UIKit
+
+// MARK: - CalendarSecondStat
+
+enum CalendarSecondStat: String {
+    case tips       = "Tips"
+    case earnings   = "Earnings"
+    case hourlyRate = "Hourly Rate"
+}
 
 // MARK: - CalendarView
 
@@ -7,41 +14,43 @@ struct CalendarView: View {
     @ObservedObject var recordsStore: RecordsStore
     @Binding var hourlyWage: Double
 
+    @AppStorage("firstWeekday") private var firstWeekday: Int = 2
+    @AppStorage("calendarSecondStat") private var secondStat: CalendarSecondStat = .tips
+
+    @State private var displayedMonth: Date = {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month], from: Date())
+        return cal.date(from: comps) ?? Date()
+    }()
     @State private var selectedDate: Date? = nil
     @State private var isShowingEditSheet = false
+    @State private var isShowingMonthPicker = false
+
+    private var recordsByDay: [Date: WorkRecord] {
+        let cal = Calendar.current
+        var dict: [Date: WorkRecord] = [:]
+        for record in recordsStore.records {
+            dict[cal.startOfDay(for: record.date)] = record
+        }
+        return dict
+    }
+
+    private var yearRange: ClosedRange<Int> {
+        let cal = Calendar.current
+        let current = cal.component(.year, from: Date())
+        let earliest = recordsStore.records.map { cal.component(.year, from: $0.date) }.min() ?? current
+        return earliest...(current + 2)
+    }
 
     var body: some View {
         NavigationView {
-            VStack {
-                ScrollView(.vertical, showsIndicators: true) {
-                    // Removed .id(recordsStore.records) — decoration updates are handled
-                    // incrementally inside CalendarUIKitView.updateUIView instead.
-                    CalendarUIKitView(selectedDate: $selectedDate, records: recordsStore.records)
-                        .padding()
-                }
-
+            VStack(spacing: 0) {
+                monthHeader
+                statToggle
+                dayOfWeekHeader
+                calendarGrid
                 Divider()
-
-                if let date = selectedDate {
-                    let dayRecords = recordsStore.records.filter {
-                        Calendar.current.isDate($0.date, inSameDayAs: date)
-                    }
-                    if !dayRecords.isEmpty {
-                        ScrollView(.vertical, showsIndicators: true) {
-                            DayMetricsView(dayRecords: dayRecords,
-                                           hourlyWage: hourlyWage,
-                                           date: date,
-                                           onEdit: { isShowingEditSheet = true })
-                                .padding(.bottom)
-                        }
-                        .frame(maxHeight: 160)
-                    } else {
-                        Text("No records for \(Formatters.fullDate.string(from: date))")
-                            .padding()
-                            .padding(.vertical)
-                    }
-                }
-
+                selectedDayPanel
                 Spacer()
             }
             .navigationTitle("Calendar")
@@ -51,6 +60,167 @@ struct CalendarView: View {
         }
         .dynamicTypeSize(.xSmall ... .large)
     }
+
+    // MARK: - Month Header
+
+    private var monthHeader: some View {
+        HStack {
+            Button { advanceMonth(by: -1) } label: {
+                Image(systemName: "chevron.left")
+                    .font(.title3.weight(.semibold))
+                    .padding(.horizontal)
+            }
+            Spacer()
+            Button { isShowingMonthPicker = true } label: {
+                HStack(spacing: 4) {
+                    Text(Formatters.monthYear.string(from: displayedMonth))
+                        .font(.title2.bold())
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .foregroundStyle(.primary)
+            }
+            .sheet(isPresented: $isShowingMonthPicker) {
+                MonthYearPickerSheet(displayedMonth: $displayedMonth, yearRange: yearRange)
+                    .presentationDetents([.height(280)])
+            }
+            Spacer()
+            Button { advanceMonth(by: 1) } label: {
+                Image(systemName: "chevron.right")
+                    .font(.title3.weight(.semibold))
+                    .padding(.horizontal)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func advanceMonth(by value: Int) {
+        if let next = Calendar.current.date(byAdding: .month, value: value, to: displayedMonth) {
+            displayedMonth = next
+        }
+    }
+
+    // MARK: - Stat Toggle
+
+    private var statToggle: some View {
+        HStack {
+            Text("Show:")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Picker("Second stat", selection: $secondStat) {
+                Text("Tips").tag(CalendarSecondStat.tips)
+                Text("Earnings").tag(CalendarSecondStat.earnings)
+                Text("Hourly").tag(CalendarSecondStat.hourlyRate)
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    // MARK: - Day of Week Header
+
+    private var dayOfWeekHeader: some View {
+        let symbols = orderedWeekdaySymbols
+        return HStack(spacing: 0) {
+            ForEach(Array(symbols.enumerated()), id: \.offset) { _, sym in
+                Text(sym)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 2)
+    }
+
+    private var orderedWeekdaySymbols: [String] {
+        let symbols = Calendar.current.veryShortWeekdaySymbols
+        let offset = firstWeekday - 1
+        return Array(symbols[offset...] + symbols[..<offset])
+    }
+
+    // MARK: - Calendar Grid
+
+    private var calendarGrid: some View {
+        let days = buildMonthGrid()
+        let byDay = recordsByDay
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 7)
+
+        return LazyVGrid(columns: columns, spacing: 2) {
+            ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                if let date = day {
+                    let record = byDay[Calendar.current.startOfDay(for: date)]
+                    DayCell(
+                        date: date,
+                        record: record,
+                        hourlyWage: hourlyWage,
+                        secondStat: secondStat,
+                        isSelected: selectedDate.map { Calendar.current.isDate($0, inSameDayAs: date) } ?? false,
+                        isToday: Calendar.current.isDateInToday(date)
+                    ) {
+                        let alreadySelected = selectedDate.map {
+                            Calendar.current.isDate($0, inSameDayAs: date)
+                        } ?? false
+                        selectedDate = alreadySelected ? nil : date
+                    }
+                } else {
+                    Color.clear
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(CGSize(width: 1, height: 1.1), contentMode: .fit)
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func buildMonthGrid() -> [Date?] {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month], from: displayedMonth)
+        guard let firstDay = cal.date(from: comps),
+              let daysInMonth = cal.range(of: .day, in: .month, for: firstDay)?.count
+        else { return [] }
+
+        let weekdayOfFirst = cal.component(.weekday, from: firstDay)
+        let offset = (weekdayOfFirst - firstWeekday + 7) % 7
+
+        var days: [Date?] = Array(repeating: nil, count: offset)
+        for i in 0..<daysInMonth {
+            days.append(cal.date(byAdding: .day, value: i, to: firstDay))
+        }
+        while days.count % 7 != 0 { days.append(nil) }
+        return days
+    }
+
+    // MARK: - Selected Day Panel
+
+    @ViewBuilder
+    private var selectedDayPanel: some View {
+        if let date = selectedDate {
+            let dayRecords = recordsStore.records.filter {
+                Calendar.current.isDate($0.date, inSameDayAs: date)
+            }
+            if !dayRecords.isEmpty {
+                ScrollView(.vertical, showsIndicators: true) {
+                    DayMetricsView(
+                        dayRecords: dayRecords,
+                        hourlyWage: hourlyWage,
+                        date: date,
+                        onEdit: { isShowingEditSheet = true }
+                    )
+                    .padding(.bottom)
+                }
+                .frame(maxHeight: 160)
+            } else {
+                Text("No records for \(Formatters.fullDate.string(from: date))")
+                    .padding()
+                    .padding(.vertical)
+            }
+        }
+    }
+
+    // MARK: - Edit Sheet
 
     @ViewBuilder
     private var editSheet: some View {
@@ -84,92 +254,133 @@ struct CalendarView: View {
     }
 }
 
-// MARK: - CalendarUIKitView
+// MARK: - MonthYearPickerSheet
 
-struct CalendarUIKitView: UIViewRepresentable {
-    @Binding var selectedDate: Date?
-    let records: [WorkRecord]
+private struct MonthYearPickerSheet: View {
+    @Binding var displayedMonth: Date
+    let yearRange: ClosedRange<Int>
+    @Environment(\.dismiss) private var dismiss
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+    @State private var selectedMonth: Int
+    @State private var selectedYear: Int
+
+    init(displayedMonth: Binding<Date>, yearRange: ClosedRange<Int>) {
+        _displayedMonth = displayedMonth
+        let comps = Calendar.current.dateComponents([.year, .month], from: displayedMonth.wrappedValue)
+        _selectedMonth = State(initialValue: comps.month ?? 1)
+        _selectedYear  = State(initialValue: comps.year ?? Calendar.current.component(.year, from: Date()))
+        self.yearRange = yearRange
     }
 
-    func makeUIView(context: Context) -> UICalendarView {
-        let calendarView = UICalendarView()
-        calendarView.calendar = Calendar.current
-        calendarView.locale   = Locale.current
-
-        let selection = UICalendarSelectionSingleDate(delegate: context.coordinator)
-        calendarView.selectionBehavior = selection
-        calendarView.delegate = context.coordinator
-
-        // Seed the coordinator's date set so the first updateUIView diff is correct
-        let cal = Calendar.current
-        context.coordinator.decoratedDates = Set(records.map {
-            cal.dateComponents([.year, .month, .day], from: $0.date)
-        })
-
-        return calendarView
-    }
-
-    func updateUIView(_ uiView: UICalendarView, context: Context) {
-        // Keep coordinator's parent reference current for delegate callbacks
-        context.coordinator.parent = self
-
-        // Incrementally reload only dates whose decoration status changed
-        let cal = Calendar.current
-        let newDates = Set(records.map { cal.dateComponents([.year, .month, .day], from: $0.date) })
-        let oldDates = context.coordinator.decoratedDates
-        let changed  = Array(newDates.symmetricDifference(oldDates))
-        context.coordinator.decoratedDates = newDates
-
-        if !changed.isEmpty {
-            uiView.reloadDecorations(forDateComponents: changed, animated: false)
-        }
-
-        // Sync the selected date highlight
-        guard let selection = uiView.selectionBehavior as? UICalendarSelectionSingleDate else { return }
-        if let date = selectedDate {
-            let newComps = cal.dateComponents([.year, .month, .day], from: date)
-            if let currentComps = selection.selectedDate,
-               let currentDate = cal.date(from: currentComps),
-               cal.isDate(currentDate, inSameDayAs: date) {
-                return // already correct — no-op
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .padding()
+                Spacer()
+                Button("Done") {
+                    var comps = DateComponents()
+                    comps.year  = selectedYear
+                    comps.month = selectedMonth
+                    comps.day   = 1
+                    if let date = Calendar.current.date(from: comps) {
+                        displayedMonth = date
+                    }
+                    dismiss()
+                }
+                .bold()
+                .padding()
             }
-            selection.setSelected(newComps, animated: true)
-        } else {
-            selection.setSelected(nil, animated: true)
+            Divider()
+            HStack(spacing: 0) {
+                Picker("Month", selection: $selectedMonth) {
+                    ForEach(1...12, id: \.self) { m in
+                        Text(Calendar.current.monthSymbols[m - 1]).tag(m)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+
+                Picker("Year", selection: $selectedYear) {
+                    ForEach(yearRange, id: \.self) { y in
+                        Text(String(y)).tag(y)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(width: 110)
+            }
         }
     }
+}
 
-    // MARK: - Coordinator
+// MARK: - DayCell
 
-    class Coordinator: NSObject, UICalendarViewDelegate, UICalendarSelectionSingleDateDelegate {
-        var parent: CalendarUIKitView
-        var decoratedDates: Set<DateComponents> = []
+private struct DayCell: View {
+    let date: Date
+    let record: WorkRecord?
+    let hourlyWage: Double
+    let secondStat: CalendarSecondStat
+    let isSelected: Bool
+    let isToday: Bool
+    let onTap: () -> Void
 
-        init(_ parent: CalendarUIKitView) {
-            self.parent = parent
-        }
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 1) {
+                Text(dayNumber)
+                    .font(.system(size: 13, weight: isToday ? .bold : .regular))
+                    .foregroundStyle(dayNumberColor)
 
-        func dateSelection(_ selection: UICalendarSelectionSingleDate,
-                           didSelectDate dateComponents: DateComponents?) {
-            guard let comps = dateComponents,
-                  let date = Calendar.current.date(from: comps) else {
-                parent.selectedDate = nil
-                return
+                if let record {
+                    Text(hoursText(record.hours))
+                        .font(.system(size: 9))
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
+                        .lineLimit(1)
+                    Text(secondStatText(for: record))
+                        .font(.system(size: 9))
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
             }
-            parent.selectedDate = date
+            .padding(4)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(CGSize(width: 1, height: 1.1), contentMode: .fit)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(cellFill)
+            )
         }
+        .buttonStyle(.plain)
+    }
 
-        func calendarView(_ calendarView: UICalendarView,
-                          decorationFor dateComponents: DateComponents) -> UICalendarView.Decoration? {
-            guard let date = Calendar.current.date(from: dateComponents) else { return nil }
-            let hasRecord = parent.records.contains {
-                Calendar.current.isDate($0.date, inSameDayAs: date)
-            }
-            return hasRecord ? .default(color: .systemBlue, size: .small) : nil
+    private var dayNumber: String {
+        String(Calendar.current.component(.day, from: date))
+    }
+
+    private func hoursText(_ hours: Double) -> String {
+        return String(format: "%.2f h", hours)
+    }
+
+    private func secondStatText(for record: WorkRecord) -> String {
+        switch secondStat {
+        case .tips:       return formatCurrency(record.tips)
+        case .earnings:   return formatCurrency(record.earnings(wage: hourlyWage))
+        case .hourlyRate: return formatCurrency(record.hourlyRate(wage: hourlyWage)) + "/hr"
         }
+    }
+
+    private var dayNumberColor: Color {
+        if isSelected { return .white }
+        if isToday    { return .accentColor }
+        return .primary
+    }
+
+    private var cellFill: Color {
+        if isSelected    { return .accentColor }
+        if record != nil { return Color.accentColor.opacity(0.1) }
+        return .clear
     }
 }
 
